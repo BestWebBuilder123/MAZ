@@ -1026,6 +1026,7 @@ private fun NewProjectDialog(close: () -> Unit, create: (Project) -> Unit) {
     )
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun EditorScreen(
     project: Project,
@@ -1053,8 +1054,31 @@ private fun EditorScreen(
     DisposableEffect(previewPlayer) {
         onDispose { previewPlayer.release() }
     }
-    LaunchedEffect(active?.uri, active?.trimStartMs, active?.trimEndMs) {
+    LaunchedEffect(
+        active?.uri,
+        active?.trimStartMs,
+        active?.trimEndMs,
+        project.hueAdjustment,
+        project.saturationAdjustment,
+        project.lightnessAdjustment
+    ) {
         previewPlayer.pause()
+        val previewEffects = if (
+            project.hueAdjustment != 0f ||
+            project.saturationAdjustment != 0f ||
+            project.lightnessAdjustment != 0f
+        ) {
+            listOf(
+                HslAdjustment.Builder()
+                    .adjustHue(project.hueAdjustment)
+                    .adjustSaturation(project.saturationAdjustment)
+                    .adjustLightness(project.lightnessAdjustment)
+                    .build()
+            )
+        } else {
+            emptyList()
+        }
+        previewPlayer.setVideoEffects(previewEffects)
         if (active != null && active.kind != "image") {
             val mediaBuilder = MediaItem.Builder().setUri(Uri.parse(active.uri))
             if (active.trimStartMs > 0L || active.trimEndMs > 0L) {
