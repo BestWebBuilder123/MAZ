@@ -1,41 +1,15 @@
-# Blurrr for Android (MAZ)
+# MAZ for Android
 
-Native Android recreation of the Blurrr editing workflow. The custom dark theme is used, and the Presets tab is intentionally omitted.
+MAZ is a clean native Android app shell. The previous editor implementation and its app features have been removed.
 
-## Implemented
+## Build
 
-- Native Jetpack Compose home, project setup, editor, and settings screens.
-- Local project persistence, including existing-project migration.
-- Import video, photo, and audio files with MIME type, display name, and duration detection. The home Import action creates a project before opening the picker.
-- Rename and delete projects from the home screen.
-- Separate horizontal video and audio timeline tracks, with clip selection, reordering, and removal.
-- Per-clip trim start/end, volume, playback-speed, fade-in, and fade-out controls.
-- Media3 preview playback for selected video/audio clips, including scrubbing and live speed/volume changes.
-- HSL color adjustments are previewed during playback and applied during export.
-- Add, edit, and remove text layers with text, color, size, bold, and top/center/bottom placement.
-- MP4 export with project aspect ratio, resolution, frame rate, clip trimming, clip speed/volume/fades, HSL adjustments, text overlays, and an optional looping audio sequence.
-- Exports are saved to the device's Movies/Blurrr folder.
-- GitHub release update discovery, APK download, and Android package-installer handoff. Android still requires the user to approve installation.
+Pushes to `main` build a debug APK with GitHub Actions. Open the repository's **Actions** tab, select a successful **Android APK** run, and download the `maz-android-apk` artifact.
 
-## Build and download
+Tagged builds publish `maz-android.apk` as a GitHub Release after release signing is configured.
 
-GitHub Actions builds a debug APK artifact on development pushes. Open the repository's **Actions** tab, select a successful **Android APK** run, and download its `blurrr-android-apk` artifact.
+## App identity
 
-A tagged release publishes `blurrr-android.apk` only after the release APK is signed and its signature is verified.
-
-## Signed releases and automatic updates
-
-Android requires every update to use the same signing certificate. Before publishing the first installable release, create a private Android keystore and add these repository Actions secrets:
-
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-
-Keep the keystore and passwords private and backed up. Never rotate the key for normal updates. Increment `versionCode` and `versionName` for each release, then push a tag such as `v1.0.2`.
-
-The in-app updater checks the latest GitHub release and downloads the `blurrr-android.apk` asset. Android may ask the user to allow installs from Blurrr and always shows its own installation confirmation; updates are not silent.
-
-## Still in development
-
-This is not yet full Blurrr feature parity. Remaining work includes keyframe animation and curves, time remapping/velocity ramps, transitions, a larger effect library, masks, shapes/vector drawing, 3D layers/camera, multi-layer compositing, full-timeline playback, export controls, and real-device testing. CI compilation does not replace testing actual imports, previews, and MP4 exports on supported Android devices.
+- Display name: MAZ
+- Application ID: `com.maz.blurrr` (preserved so the existing app identity remains update-compatible)
+- Minimum Android version: Android 8.0 (API 26)
