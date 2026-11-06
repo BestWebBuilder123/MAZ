@@ -933,6 +933,7 @@ private fun EditorScreen(
 ) {
     var selected by remember(project.id) { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
+    val active = project.clips.getOrNull(selected)
     val context = LocalContext.current
     val previewPlayer = remember(project.id) { ExoPlayer.Builder(context).build() }
     DisposableEffect(previewPlayer) {
@@ -967,7 +968,6 @@ private fun EditorScreen(
     var editingTextLayer by remember { mutableStateOf<TextLayer?>(null) }
     var showEffectsDialog by remember { mutableStateOf(false) }
     var toolNotice by remember { mutableStateOf<String?>(null) }
-    val active = project.clips.getOrNull(selected)
     val duration = active?.durationMs ?: 0L
     val endValue = active?.let { if (it.trimEndMs > 0L) it.trimEndMs else it.durationMs } ?: 0L
 
