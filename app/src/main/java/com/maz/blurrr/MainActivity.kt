@@ -3,6 +3,12 @@ package com.maz.blurrr
 import android.content.ContentValues
 import android.content.Intent
 import android.provider.Settings
+import android.graphics.Typeface
+import android.text.Spannable
+import android.text.SpannableString
+import android.text.style.AbsoluteSizeSpan
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -43,9 +49,13 @@ import androidx.compose.runtime.key
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.StaticOverlaySettings
+import androidx.media3.effect.TextOverlay
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
+import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
@@ -79,12 +89,22 @@ data class MediaClip(
     val trimEndMs: Long = 0L
 )
 
+data class TextLayer(
+    val id: String = UUID.randomUUID().toString(),
+    val text: String,
+    val colorArgb: Int = 0xFFFFFFFF.toInt(),
+    val sizeSp: Float = 48f,
+    val position: String = "Center",
+    val bold: Boolean = true
+)
+
 data class Project(
     val name: String,
     val ratio: String,
     val resolution: String,
     val fps: Int,
     val clips: List<MediaClip> = emptyList(),
+    val textLayers: List<TextLayer> = emptyList(),
     val id: String = UUID.randomUUID().toString()
 )
 
@@ -170,6 +190,18 @@ class MainActivity : ComponentActivity() {
                                             projects = projects.map { if (it.id == project.id) changed else it }
                                             saveProjects(projects)
                                         }
+                                    },
+                                    addTextLayer = { layer ->
+                                        val changed = project.copy(textLayers = project.textLayers + layer)
+                                        current = changed
+                                        projects = projects.map { if (it.id == project.id) changed else it }
+                                        saveProjects(projects)
+                                    },
+                                    removeTextLayer = { layerId ->
+                                        val changed = project.copy(textLayers = project.textLayers.filterNot { it.id == layerId })
+                                        current = changed
+                                        projects = projects.map { if (it.id == project.id) changed else it }
+                                        saveProjects(projects)
                                     },
                                     onExport = {
                                         if (!exporting) {
@@ -275,12 +307,25 @@ class MainActivity : ComponentActivity() {
                     MediaClip(legacyUri, "Imported media", inferred + "/*", inferred)
                 }
             }
+            val rawTextLayers = obj.optJSONArray("textLayers") ?: JSONArray()
+            val textLayers = (0 until rawTextLayers.length()).map { j ->
+                val layer = rawTextLayers.getJSONObject(j)
+                TextLayer(
+                    id = layer.optString("id", UUID.randomUUID().toString()),
+                    text = layer.optString("text", ""),
+                    colorArgb = layer.optInt("colorArgb", 0xFFFFFFFF.toInt()),
+                    sizeSp = layer.optDouble("sizeSp", 48.0).toFloat(),
+                    position = layer.optString("position", "Center"),
+                    bold = layer.optBoolean("bold", true)
+                )
+            }
             Project(
                 name = obj.optString("name", "Untitled"),
                 ratio = obj.optString("ratio", "16:9"),
                 resolution = obj.optString("resolution", "1080p"),
                 fps = obj.optInt("fps", 30),
                 clips = clips,
+                textLayers = textLayers,
                 id = obj.optString("id", UUID.randomUUID().toString())
             )
         }
@@ -302,6 +347,18 @@ class MainActivity : ComponentActivity() {
                         .put("trimEndMs", c.trimEndMs)
                 )
             }
+            val textLayers = JSONArray()
+            p.textLayers.forEach { layer ->
+                textLayers.put(
+                    JSONObject()
+                        .put("id", layer.id)
+                        .put("text", layer.text)
+                        .put("colorArgb", layer.colorArgb)
+                        .put("sizeSp", layer.sizeSp.toDouble())
+                        .put("position", layer.position)
+                        .put("bold", layer.bold)
+                )
+            }
             array.put(
                 JSONObject()
                     .put("id", p.id)
@@ -310,6 +367,7 @@ class MainActivity : ComponentActivity() {
                     .put("resolution", p.resolution)
                     .put("fps", p.fps)
                     .put("clips", clips)
+                    .put("textLayers", textLayers)
             )
         }
         getSharedPreferences("blurrr", MODE_PRIVATE).edit().putString("projects", array.toString()).apply()
@@ -352,7 +410,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val visualSequence = EditedMediaItemSequence.withAudioAndVideoFrom(visualItems)
-        val composition = if (audioClips.isNotEmpty()) {
+        val compositionBuilder = if (audioClips.isNotEmpty()) {
             val audioItems = audioClips.map { clip ->
                 EditedMediaItem.Builder(MediaItem.fromUri(Uri.parse(clip.uri))).build()
             }
@@ -360,10 +418,50 @@ class MainActivity : ComponentActivity() {
                 .buildUpon()
                 .setIsLooping(true)
                 .build()
-            Composition.Builder(visualSequence, audioSequence).build()
+            Composition.Builder(visualSequence, audioSequence)
         } else {
-            Composition.Builder(visualSequence).build()
+            Composition.Builder(visualSequence)
         }
+
+        val textOverlays = project.textLayers
+            .filter { it.text.isNotBlank() }
+            .map { layer ->
+                val styledText = SpannableString(layer.text)
+                styledText.setSpan(
+                    ForegroundColorSpan(layer.colorArgb),
+                    0,
+                    styledText.length,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                styledText.setSpan(
+                    AbsoluteSizeSpan(layer.sizeSp.toInt().coerceIn(16, 160), true),
+                    0,
+                    styledText.length,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                if (layer.bold) {
+                    styledText.setSpan(
+                        StyleSpan(Typeface.BOLD),
+                        0,
+                        styledText.length,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                val anchorY = when (layer.position) {
+                    "Top" -> 0.72f
+                    "Bottom" -> -0.72f
+                    else -> 0f
+                }
+                val overlaySettings = StaticOverlaySettings.Builder()
+                    .setBackgroundFrameAnchor(0f, anchorY)
+                    .setOverlayFrameAnchor(0f, 0f)
+                    .build()
+                TextOverlay.createStaticTextOverlay(styledText, overlaySettings)
+            }
+        if (textOverlays.isNotEmpty()) {
+            compositionBuilder.setEffects(Effects(emptyList(), listOf(OverlayEffect(textOverlays))))
+        }
+        val composition = compositionBuilder.build()
 
         val folder = getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: cacheDir
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
@@ -714,10 +812,14 @@ private fun EditorScreen(
     remove: (Int) -> Unit,
     updateClip: (Int, MediaClip) -> Unit,
     moveClip: (Int, Int) -> Unit,
+    addTextLayer: (TextLayer) -> Unit,
+    removeTextLayer: (String) -> Unit,
     onExport: () -> Unit
 ) {
     var selected by remember(project.id) { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
+    var showTextDialog by remember { mutableStateOf(false) }
+    var toolNotice by remember { mutableStateOf<String?>(null) }
     val active = project.clips.getOrNull(selected)
     val duration = active?.durationMs ?: 0L
     val endValue = active?.let { if (it.trimEndMs > 0L) it.trimEndMs else it.durationMs } ?: 0L
@@ -793,6 +895,22 @@ private fun EditorScreen(
                     Icon(Icons.Default.MusicNote, null, tint = lime, modifier = Modifier.size(46.dp))
                     Text(active.name, color = Color.White)
                     Text("Audio track", color = muted, fontSize = 11.sp)
+                }
+            }
+            if (active?.kind == "video" || active?.kind == "image") {
+                project.textLayers.forEach { layer ->
+                    val alignment = when (layer.position) {
+                        "Top" -> Alignment.TopCenter
+                        "Bottom" -> Alignment.BottomCenter
+                        else -> Alignment.Center
+                    }
+                    Text(
+                        text = layer.text,
+                        color = Color(layer.colorArgb.toLong()),
+                        fontSize = layer.sizeSp.sp,
+                        fontWeight = if (layer.bold) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier.align(alignment).padding(12.dp)
+                    )
                 }
             }
         }
@@ -875,8 +993,26 @@ private fun EditorScreen(
                             )
                         }
                     }
-                    if (project.clips.isEmpty()) {
-                        item { Text("Add video, photo, or music below", color = muted, fontSize = 11.sp, modifier = Modifier.padding(14.dp)) }
+                    if (project.clips.isEmpty() && project.textLayers.isEmpty()) {
+                        item { Text("Add video, photo, music, or text below", color = muted, fontSize = 11.sp, modifier = Modifier.padding(14.dp)) }
+                    }
+                    items(project.textLayers, key = { "text_" + it.id }) { layer ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(Color(0xFF3A3025))
+                                .padding(horizontal = 8.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.TextFields, null, tint = Color(0xFFFFC45E), modifier = Modifier.size(17.dp))
+                            Text(layer.text, color = Color.White, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
+                            Icon(
+                                Icons.Default.Close,
+                                null,
+                                tint = muted,
+                                modifier = Modifier.clickable { removeTextLayer(layer.id) }.size(19.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -916,7 +1052,8 @@ private fun EditorScreen(
                             when (tool) {
                                 "Video/Photo" -> import("visual")
                                 "Music" -> import("audio")
-                                "Fx", "Text", "Shapes", "3D" -> import("visual")
+                                "Text" -> showTextDialog = true
+                                else -> toolNotice = "$tool editing is still being built."
                             }
                         }
                         .padding(vertical = 12.dp),
@@ -939,6 +1076,110 @@ private fun EditorScreen(
             }
         }
     }
+
+    if (showTextDialog) {
+        TextLayerDialog(
+            close = { showTextDialog = false },
+            save = { layer ->
+                addTextLayer(layer)
+                showTextDialog = false
+            }
+        )
+    }
+    toolNotice?.let { message ->
+        AlertDialog(
+            onDismissRequest = { toolNotice = null },
+            containerColor = panel,
+            title = { Text("In development") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { toolNotice = null }) { Text("OK") } }
+        )
+    }
+}
+
+@Composable
+private fun TextLayerDialog(
+    close: () -> Unit,
+    save: (TextLayer) -> Unit
+) {
+    var value by remember { mutableStateOf("Your text") }
+    var colorArgb by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
+    var size by remember { mutableFloatStateOf(48f) }
+    var position by remember { mutableStateOf("Center") }
+    var bold by remember { mutableStateOf(true) }
+    val colors = listOf(
+        0xFFFFFFFF.toInt(),
+        0xFFFFD84D.toInt(),
+        0xFFFF6F91.toInt(),
+        0xFF57D8FF.toInt()
+    )
+
+    AlertDialog(
+        onDismissRequest = close,
+        containerColor = panel,
+        title = { Text("Add text layer") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    label = { Text("Text") },
+                    minLines = 2,
+                    maxLines = 4
+                )
+                Text("Color", color = muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    colors.forEach { color ->
+                        Box(
+                            Modifier.size(30.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(color.toLong()))
+                                .border(if (colorArgb == color) 2.dp else 0.dp, Color.White, RoundedCornerShape(50))
+                                .clickable { colorArgb = color }
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Size", color = muted, fontSize = 12.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(size.toInt().toString() + " sp", color = Color.White, fontSize = 12.sp)
+                }
+                Slider(value = size, onValueChange = { size = it }, valueRange = 20f..96f)
+                Text("Position", color = muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Top", "Center", "Bottom").forEach { option ->
+                        FilterChip(
+                            selected = position == option,
+                            onClick = { position = option },
+                            label = { Text(option) }
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = bold, onCheckedChange = { bold = it })
+                    Text("Bold")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    save(
+                        TextLayer(
+                            text = value.trim(),
+                            colorArgb = colorArgb,
+                            sizeSp = size,
+                            position = position,
+                            bold = bold
+                        )
+                    )
+                },
+                enabled = value.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
+            ) { Text("Add to timeline") }
+        },
+        dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
+    )
 }
 
 @Composable
