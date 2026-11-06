@@ -211,6 +211,12 @@ class MainActivity : ComponentActivity() {
                                         projects = projects.map { if (it.id == project.id) changed else it }
                                         saveProjects(projects)
                                     },
+                                    updateTextLayer = { layer ->
+                                        val changed = project.copy(textLayers = project.textLayers.map { if (it.id == layer.id) layer else it })
+                                        current = changed
+                                        projects = projects.map { if (it.id == project.id) changed else it }
+                                        saveProjects(projects)
+                                    },
                                     updateColorEffects = { hue, saturation, lightness ->
                                         val changed = project.copy(
                                             hueAdjustment = hue,
@@ -903,12 +909,14 @@ private fun EditorScreen(
     moveClip: (Int, Int) -> Unit,
     addTextLayer: (TextLayer) -> Unit,
     removeTextLayer: (String) -> Unit,
+    updateTextLayer: (TextLayer) -> Unit,
     updateColorEffects: (Float, Float, Float) -> Unit,
     onExport: () -> Unit
 ) {
     var selected by remember(project.id) { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
     var showTextDialog by remember { mutableStateOf(false) }
+    var editingTextLayer by remember { mutableStateOf<TextLayer?>(null) }
     var showEffectsDialog by remember { mutableStateOf(false) }
     var toolNotice by remember { mutableStateOf<String?>(null) }
     val active = project.clips.getOrNull(selected)
@@ -1092,6 +1100,7 @@ private fun EditorScreen(
                             Modifier.fillMaxWidth().padding(vertical = 3.dp)
                                 .clip(RoundedCornerShape(7.dp))
                                 .background(Color(0xFF3A3025))
+                                .clickable { editingTextLayer = layer; showTextDialog = true }
                                 .padding(horizontal = 8.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1181,10 +1190,12 @@ private fun EditorScreen(
 
     if (showTextDialog) {
         TextLayerDialog(
-            close = { showTextDialog = false },
+            initial = editingTextLayer,
+            close = { showTextDialog = false; editingTextLayer = null },
             save = { layer ->
-                addTextLayer(layer)
+                if (editingTextLayer == null) addTextLayer(layer) else updateTextLayer(layer)
                 showTextDialog = false
+                editingTextLayer = null
             }
         )
     }
@@ -1213,14 +1224,15 @@ private fun EditorScreen(
 
 @Composable
 private fun TextLayerDialog(
+    initial: TextLayer? = null,
     close: () -> Unit,
     save: (TextLayer) -> Unit
 ) {
-    var value by remember { mutableStateOf("Your text") }
-    var colorArgb by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
-    var size by remember { mutableFloatStateOf(48f) }
-    var position by remember { mutableStateOf("Center") }
-    var bold by remember { mutableStateOf(true) }
+    var value by remember(initial?.id) { mutableStateOf(initial?.text ?: "Your text") }
+    var colorArgb by remember(initial?.id) { mutableIntStateOf(initial?.colorArgb ?: 0xFFFFFFFF.toInt()) }
+    var size by remember(initial?.id) { mutableFloatStateOf(initial?.sizeSp ?: 48f) }
+    var position by remember(initial?.id) { mutableStateOf(initial?.position ?: "Center") }
+    var bold by remember(initial?.id) { mutableStateOf(initial?.bold ?: true) }
     val colors = listOf(
         0xFFFFFFFF.toInt(),
         0xFFFFD84D.toInt(),
@@ -1231,7 +1243,7 @@ private fun TextLayerDialog(
     AlertDialog(
         onDismissRequest = close,
         containerColor = panel,
-        title = { Text("Add text layer") },
+        title = { Text(if (initial == null) "Add text layer" else "Edit text layer") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
@@ -1280,6 +1292,7 @@ private fun TextLayerDialog(
                 onClick = {
                     save(
                         TextLayer(
+                            id = initial?.id ?: UUID.randomUUID().toString(),
                             text = value.trim(),
                             colorArgb = colorArgb,
                             sizeSp = size,
@@ -1290,7 +1303,7 @@ private fun TextLayerDialog(
                 },
                 enabled = value.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
-            ) { Text("Add to timeline") }
+            ) { Text(if (initial == null) "Add to timeline" else "Save changes") }
         },
         dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
     )
