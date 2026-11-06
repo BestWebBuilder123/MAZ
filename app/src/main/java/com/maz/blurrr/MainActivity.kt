@@ -109,7 +109,10 @@ data class TextLayer(
     val colorArgb: Int = 0xFFFFFFFF.toInt(),
     val sizeSp: Float = 48f,
     val position: String = "Center",
-    val bold: Boolean = true
+    val bold: Boolean = true,
+    val scale: Float = 1f,
+    val rotationDegrees: Float = 0f,
+    val opacity: Float = 1f
 )
 
 data class Project(
@@ -368,7 +371,10 @@ class MainActivity : ComponentActivity() {
                     colorArgb = layer.optInt("colorArgb", 0xFFFFFFFF.toInt()),
                     sizeSp = layer.optDouble("sizeSp", 48.0).toFloat(),
                     position = layer.optString("position", "Center"),
-                    bold = layer.optBoolean("bold", true)
+                    bold = layer.optBoolean("bold", true),
+                    scale = layer.optDouble("scale", 1.0).toFloat().coerceIn(0.25f, 3f),
+                    rotationDegrees = layer.optDouble("rotationDegrees", 0.0).toFloat().coerceIn(-180f, 180f),
+                    opacity = layer.optDouble("opacity", 1.0).toFloat().coerceIn(0f, 1f)
                 )
             }
             Project(
@@ -416,6 +422,9 @@ class MainActivity : ComponentActivity() {
                         .put("sizeSp", layer.sizeSp.toDouble())
                         .put("position", layer.position)
                         .put("bold", layer.bold)
+                        .put("scale", layer.scale.toDouble())
+                        .put("rotationDegrees", layer.rotationDegrees.toDouble())
+                        .put("opacity", layer.opacity.toDouble())
                 )
             }
             array.put(
@@ -575,6 +584,9 @@ class MainActivity : ComponentActivity() {
                 val overlaySettings = StaticOverlaySettings.Builder()
                     .setBackgroundFrameAnchor(0f, anchorY)
                     .setOverlayFrameAnchor(0f, 0f)
+                    .setScale(layer.scale, layer.scale)
+                    .setRotationDegrees(layer.rotationDegrees)
+                    .setAlphaScale(layer.opacity)
                     .build()
                 TextOverlay.createStaticTextOverlay(styledText, overlaySettings)
             }
@@ -1529,6 +1541,9 @@ private fun TextLayerDialog(
     var size by remember(initial?.id) { mutableFloatStateOf(initial?.sizeSp ?: 48f) }
     var position by remember(initial?.id) { mutableStateOf(initial?.position ?: "Center") }
     var bold by remember(initial?.id) { mutableStateOf(initial?.bold ?: true) }
+    var scale by remember(initial?.id) { mutableFloatStateOf(initial?.scale ?: 1f) }
+    var rotation by remember(initial?.id) { mutableFloatStateOf(initial?.rotationDegrees ?: 0f) }
+    var opacity by remember(initial?.id) { mutableFloatStateOf(initial?.opacity ?: 1f) }
     val colors = listOf(
         0xFFFFFFFF.toInt(),
         0xFFFFD84D.toInt(),
@@ -1581,6 +1596,12 @@ private fun TextLayerDialog(
                     Checkbox(checked = bold, onCheckedChange = { bold = it })
                     Text("Bold")
                 }
+                Text("Scale  " + String.format(Locale.US, "%.2fx", scale), color = muted, fontSize = 12.sp)
+                Slider(value = scale, onValueChange = { scale = it }, valueRange = 0.25f..3f)
+                Text("Rotation  " + rotation.toInt() + "°", color = muted, fontSize = 12.sp)
+                Slider(value = rotation, onValueChange = { rotation = it }, valueRange = -180f..180f)
+                Text("Opacity  " + (opacity * 100).toInt() + "%", color = muted, fontSize = 12.sp)
+                Slider(value = opacity, onValueChange = { opacity = it }, valueRange = 0f..1f)
             }
         },
         confirmButton = {
@@ -1593,7 +1614,10 @@ private fun TextLayerDialog(
                             colorArgb = colorArgb,
                             sizeSp = size,
                             position = position,
-                            bold = bold
+                            bold = bold,
+                            scale = scale,
+                            rotationDegrees = rotation,
+                            opacity = opacity
                         )
                     )
                 },
