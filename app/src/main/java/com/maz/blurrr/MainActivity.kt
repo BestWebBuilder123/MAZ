@@ -523,9 +523,9 @@ class MainActivity : ComponentActivity() {
                         if (clip.hueAdjustment != 0f || clip.saturationAdjustment != 0f || clip.lightnessAdjustment != 0f) {
                             listOf(
                                 HslAdjustment.Builder()
-                                    .adjustHue(clip.hueAdjustment)
-                                    .adjustSaturation(clip.saturationAdjustment)
-                                    .adjustLightness(clip.lightnessAdjustment)
+                                    .adjustHue((project.hueAdjustment + clip.hueAdjustment).coerceIn(-180f, 180f))
+                                    .adjustSaturation((project.saturationAdjustment + clip.saturationAdjustment).coerceIn(-100f, 100f))
+                                    .adjustLightness((project.lightnessAdjustment + clip.lightnessAdjustment).coerceIn(-100f, 100f))
                                     .build()
                             )
                         } else emptyList()
@@ -1109,9 +1109,9 @@ private fun EditorScreen(
         ) {
             listOf(
                 HslAdjustment.Builder()
-                    .adjustHue(project.hueAdjustment)
-                    .adjustSaturation(project.saturationAdjustment)
-                    .adjustLightness(project.lightnessAdjustment)
+                    .adjustHue((project.hueAdjustment + (active?.hueAdjustment ?: 0f)).coerceIn(-180f, 180f))
+                    .adjustSaturation((project.saturationAdjustment + (active?.saturationAdjustment ?: 0f)).coerceIn(-100f, 100f))
+                    .adjustLightness((project.lightnessAdjustment + (active?.lightnessAdjustment ?: 0f)).coerceIn(-100f, 100f))
                     .build()
             )
         } else {
