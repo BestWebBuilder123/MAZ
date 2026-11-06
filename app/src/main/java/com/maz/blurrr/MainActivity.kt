@@ -46,9 +46,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.key
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.DefaultGainProvider
 import androidx.media3.common.audio.GainProcessor
+import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.HslAdjustment
@@ -91,7 +93,8 @@ data class MediaClip(
     val durationMs: Long = 0L,
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
-    val volume: Float = 1f
+    val volume: Float = 1f,
+    val speed: Float = 1f
 )
 
 data class TextLayer(
@@ -320,7 +323,8 @@ class MainActivity : ComponentActivity() {
                         durationMs = raw.optLong("durationMs", 0L),
                         trimStartMs = raw.optLong("trimStartMs", 0L),
                         trimEndMs = raw.optLong("trimEndMs", 0L),
-                        volume = raw.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f)
+                        volume = raw.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f),
+                        speed = raw.optDouble("speed", 1.0).toFloat().coerceIn(0.25f, 4f)
                     )
                 } else {
                     val legacyUri = raw.toString()
@@ -374,6 +378,7 @@ class MainActivity : ComponentActivity() {
                         .put("trimStartMs", c.trimStartMs)
                         .put("trimEndMs", c.trimEndMs)
                         .put("volume", c.volume.toDouble())
+                        .put("speed", c.speed.toDouble())
                 )
             }
             val textLayers = JSONArray()
@@ -415,6 +420,15 @@ class MainActivity : ComponentActivity() {
     }
 
     @OptIn(UnstableApi::class)
+    private fun constantSpeed(speed: Float): SpeedProvider {
+        val safeSpeed = speed.coerceIn(0.25f, 4f)
+        return object : SpeedProvider {
+            override fun getSpeed(timeUs: Long): Float = safeSpeed
+            override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
+        }
+    }
+
+    @OptIn(UnstableApi::class)
     private fun exportProject(project: Project, onStatus: (String) -> Unit) {
         val visualClips = project.clips.filter { it.kind == "video" || it.kind == "image" }
         val audioClips = project.clips.filter { it.kind == "audio" }
@@ -438,7 +452,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            EditedMediaItem.Builder(builder.build())
+            val editedBuilder = EditedMediaItem.Builder(builder.build())
                 .setFrameRate(project.fps.coerceIn(1, 120))
                 .setEffects(
                     Effects(
@@ -446,7 +460,8 @@ class MainActivity : ComponentActivity() {
                         emptyList()
                     )
                 )
-                .build()
+            if (clip.kind == "video") editedBuilder.setSpeed(constantSpeed(clip.speed))
+            editedBuilder.build()
         }
 
         val visualSequence = EditedMediaItemSequence.withAudioAndVideoFrom(visualItems)
@@ -465,6 +480,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 EditedMediaItem.Builder(builder.build())
+                    .setSpeed(constantSpeed(clip.speed))
                     .setEffects(
                         Effects(
                             listOf(GainProcessor(DefaultGainProvider.Builder(clip.volume.coerceIn(0f, 1f)).build())),
@@ -1124,6 +1140,14 @@ private fun EditorScreen(
                         onValueChange = { value -> updateClip(selected, active.copy(volume = value.coerceIn(0f, 1f))) },
                         valueRange = 0f..1f
                     )
+                    if (active.kind == "video" || active.kind == "audio") {
+                        Text("Speed  " + String.format(Locale.US, "%.2fx", active.speed), color = muted, fontSize = 10.sp)
+                        Slider(
+                            value = active.speed,
+                            onValueChange = { value -> updateClip(selected, active.copy(speed = value.coerceIn(0.25f, 4f))) },
+                            valueRange = 0.25f..4f
+                        )
+                    }
                 }
             }
             if (active != null && duration > 0L) {
