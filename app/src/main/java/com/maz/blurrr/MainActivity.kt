@@ -854,96 +854,103 @@ private fun HomeScreen(
     var renameProject by remember { mutableStateOf<Project?>(null) }
     var deleteProject by remember { mutableStateOf<Project?>(null) }
     var renameValue by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    Column(
+        Modifier.fillMaxSize().background(bg).padding(horizontal = 18.dp)
+    ) {
         Row(
-            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.AddBox, null, tint = Color.White)
-            Text("Blurrr", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Icon(Icons.Default.SportsEsports, null, tint = Color.White)
-                Icon(Icons.Default.Diamond, null, tint = Color.Cyan)
+            Column {
+                Text("BLURRR", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+                Text("VIDEO EDITOR", color = muted, fontSize = 9.sp, letterSpacing = 2.sp)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(panel).clickable { onImport() }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.FileOpen, null, tint = Color.White)
+                }
+                Box(Modifier.size(40.dp).clip(RoundedCornerShape(14.dp)).background(panel).clickable { onSettings() }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Settings, null, tint = Color.White)
+                }
             }
         }
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 48.dp).clip(RoundedCornerShape(28.dp))
-                .background(panel2).clickable { onNew() }.padding(22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFF292D20))
+                .border(1.dp, Color(0xFF46502B), RoundedCornerShape(22.dp))
+                .clickable { onNew() }.padding(20.dp)
         ) {
-            Icon(Icons.Default.MovieCreation, null, tint = lime, modifier = Modifier.size(52.dp))
-            Text("Start Creating", fontWeight = FontWeight.Bold)
-            Text("New Project / Tools", fontSize = 11.sp, color = muted)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(16.dp)).background(lime), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, null, tint = Color.Black, modifier = Modifier.size(28.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Create a project", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text("Start editing your next video", color = Color(0xFFB9C19F), fontSize = 11.sp)
+                }
+                Icon(Icons.Default.ArrowForward, null, tint = lime)
+            }
+            Spacer(Modifier.height(17.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("9:16", "16:9", "1:1").forEach { ratio ->
+                    Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0x332FFFFFF)).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        Text(ratio, color = Color(0xFFDDE4C8), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Text(" •  Up to 60 FPS", color = Color(0xFFB9C19F), fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterVertically))
+            }
         }
-        Spacer(Modifier.height(18.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            MiniTool("FPS Changer", Icons.Default.FastForward)
-            MiniTool("V-FPS changer", Icons.Default.Speed)
-            MiniTool("Anime", Icons.Default.Hd)
-        }
-        Spacer(Modifier.height(18.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Your project", fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(16.dp))
-            Text("Cloud project", color = muted)
-            Spacer(Modifier.weight(1f))
-            Button(
-                onClick = onImport,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55F58A), contentColor = Color.Black)
-            ) {
-                Icon(Icons.Default.Download, null)
-                Text(" Import")
+        Row(
+            Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Your projects", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("${projects.size} projects on this device", color = muted, fontSize = 11.sp)
+            }
+            TextButton(onClick = onImport) {
+                Icon(Icons.Default.FileOpen, null, tint = lime, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Import", color = lime)
             }
         }
         if (projects.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Your projects will appear here", color = muted)
+            Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(panel), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.VideoLibrary, null, tint = muted, modifier = Modifier.size(38.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text("No projects yet", color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("Create a project or import media to begin.", color = muted, fontSize = 11.sp)
+                }
             }
         } else {
-            LazyColumn(Modifier.weight(1f)) {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 14.dp)) {
                 items(projects, key = { it.id }) { project ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { onOpen(project) }.padding(vertical = 10.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp)).background(panel)
+                            .clickable { onOpen(project) }.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
-                            Modifier.size(76.dp).clip(RoundedCornerShape(16.dp)).background(panel2),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Movie, null, tint = muted, modifier = Modifier.size(32.dp))
+                        Box(Modifier.size(66.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF3B393E)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Movie, null, tint = lime, modifier = Modifier.size(29.dp))
                         }
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text(project.name, fontWeight = FontWeight.Bold)
-                            Text(project.ratio + " • " + project.fps + " FPS", color = muted, fontSize = 11.sp)
-                            Text(project.resolution + " • " + project.clips.size + " media", color = muted, fontSize = 11.sp)
+                            Text(project.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
+                            Spacer(Modifier.height(4.dp))
+                            Text(project.ratio + "  •  " + project.fps + " FPS", color = muted, fontSize = 10.sp)
+                            Text(project.clips.size.toString() + " media  •  " + project.resolution, color = muted, fontSize = 10.sp)
                         }
                         Box {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                null,
-                                tint = muted,
-                                modifier = Modifier.clickable { menuProjectId = project.id }
-                            )
-                            DropdownMenu(
-                                expanded = menuProjectId == project.id,
-                                onDismissRequest = { menuProjectId = null }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Rename") },
-                                    onClick = {
-                                        renameValue = project.name
-                                        renameProject = project
-                                        menuProjectId = null
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    onClick = {
-                                        deleteProject = project
-                                        menuProjectId = null
-                                    }
-                                )
+                            Icon(Icons.Default.MoreVert, null, tint = muted, modifier = Modifier.clickable { menuProjectId = project.id }.padding(5.dp))
+                            DropdownMenu(expanded = menuProjectId == project.id, onDismissRequest = { menuProjectId = null }) {
+                                DropdownMenuItem(text = { Text("Rename") }, onClick = {
+                                    renameValue = project.name; renameProject = project; menuProjectId = null
+                                })
+                                DropdownMenuItem(text = { Text("Delete") }, onClick = {
+                                    deleteProject = project; menuProjectId = null
+                                })
                             }
                         }
                     }
@@ -951,55 +958,36 @@ private fun HomeScreen(
             }
         }
         Row(
-            Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceAround
+            Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp)
+                .clip(RoundedCornerShape(18.dp)).background(panel).padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            Nav("Playground", Icons.Default.VideoLibrary, false) {}
-            Nav("Creation", Icons.Default.AddBox, true, onNew)
-            Nav("My", Icons.Default.AccountCircle, false, onSettings)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.FolderOpen, null, tint = muted)
+                Text("Projects", color = Color.White, fontSize = 10.sp)
+            }
+            Column(Modifier.clickable { onNew() }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.AddCircle, null, tint = lime)
+                Text("Create", color = lime, fontSize = 10.sp)
+            }
+            Column(Modifier.clickable { onSettings() }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.Settings, null, tint = muted)
+                Text("Settings", color = muted, fontSize = 10.sp)
+            }
         }
     }
     renameProject?.let { project ->
-        AlertDialog(
-            onDismissRequest = { renameProject = null },
-            containerColor = panel,
-            title = { Text("Rename project") },
-            text = {
-                OutlinedTextField(
-                    value = renameValue,
-                    onValueChange = { renameValue = it },
-                    singleLine = true,
-                    label = { Text("Project name") }
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val name = renameValue.trim()
-                        if (name.isNotEmpty()) onRename(project, name)
-                        renameProject = null
-                    },
-                    enabled = renameValue.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
-                ) { Text("Save") }
-            },
-            dismissButton = { TextButton(onClick = { renameProject = null }) { Text("Cancel") } }
-        )
+        AlertDialog(onDismissRequest = { renameProject = null }, containerColor = panel, title = { Text("Rename project") },
+            text = { OutlinedTextField(value = renameValue, onValueChange = { renameValue = it }, singleLine = true, label = { Text("Project name") }) },
+            confirmButton = { Button(onClick = { val name = renameValue.trim(); if (name.isNotEmpty()) onRename(project, name); renameProject = null },
+                enabled = renameValue.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)) { Text("Save") } },
+            dismissButton = { TextButton(onClick = { renameProject = null }) { Text("Cancel") } })
     }
     deleteProject?.let { project ->
-        AlertDialog(
-            onDismissRequest = { deleteProject = null },
-            containerColor = panel,
-            title = { Text("Delete project?") },
-            text = { Text("“" + project.name + "” will be removed from this device.") },
-            confirmButton = {
-                Button(
-                    onClick = { onDelete(project); deleteProject = null },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E), contentColor = Color.White)
-                ) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { deleteProject = null }) { Text("Cancel") } }
-        )
+        AlertDialog(onDismissRequest = { deleteProject = null }, containerColor = panel, title = { Text("Delete project?") },
+            text = { Text("\"" + project.name + "\" will be removed from this device.") },
+            confirmButton = { Button(onClick = { onDelete(project); deleteProject = null }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { deleteProject = null }) { Text("Cancel") } })
     }
 }
 
@@ -1144,7 +1132,7 @@ private fun EditorScreen(
         previewPlayer.playWhenReady = playing
         while (playing) {
             previewPosition = previewPlayer.currentPosition.coerceAtLeast(0L)
-            delay(120L)
+            delay(250L)
         }
     }
     LaunchedEffect(active?.speed, active?.volume) {
@@ -1160,14 +1148,14 @@ private fun EditorScreen(
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Close, null, Modifier.clickable { back() }, tint = Color.White)
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(panel).clickable { back() }, contentAlignment = Alignment.Center) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(project.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-                Text(project.resolution + " • " + project.fps + " FPS", color = muted, fontSize = 10.sp)
+                Text(project.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(project.ratio + "  •  " + project.resolution + "  •  " + project.fps + " FPS", color = muted, fontSize = 9.sp)
             }
             Button(
                 onClick = onExport,
@@ -1181,8 +1169,8 @@ private fun EditorScreen(
         }
 
         Box(
-            Modifier.fillMaxWidth().weight(0.42f).padding(horizontal = 12.dp)
-                .clip(RoundedCornerShape(8.dp)).background(Color(0xFF080808)),
+            Modifier.fillMaxWidth().weight(0.43f).padding(horizontal = 12.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(16.dp)).border(1.dp, Color(0xFF3A383D), RoundedCornerShape(16.dp)).background(Color(0xFF09090A)),
             contentAlignment = Alignment.Center
         ) {
             if (active == null) {
@@ -1268,7 +1256,8 @@ private fun EditorScreen(
         }
 
         Row(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp)
+                .clip(RoundedCornerShape(15.dp)).background(panel).padding(vertical = 9.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1291,7 +1280,7 @@ private fun EditorScreen(
         }
 
         Column(
-            Modifier.fillMaxWidth().weight(0.40f).background(Color(0xFF171619))
+            Modifier.fillMaxWidth().weight(0.39f).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)).background(Color(0xFF171619))
                 .verticalScroll(rememberScrollState())
         ) {
             Row(
@@ -1299,7 +1288,7 @@ private fun EditorScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("TIMELINE", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("TIMELINE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                 Text(exportStatus, color = if (exporting) lime else muted, fontSize = 10.sp, maxLines = 1)
             }
             Column(
@@ -1367,6 +1356,7 @@ private fun EditorScreen(
             }
             if (active != null && active.kind != "image") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)) {
+                    Text("CLIP SETTINGS", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     Text("Volume  " + (active.volume * 100f).toInt() + "%", color = muted, fontSize = 10.sp)
                     Slider(
                         value = active.volume,
@@ -1435,13 +1425,13 @@ private fun EditorScreen(
         }
 
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(panel).padding(7.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Color(0xFF222025)).padding(horizontal = 9.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf("Video/Photo", "Music", "Fx", "Text", "Shapes", "3D").forEach { tool ->
                 Column(
-                    Modifier.width(76.dp).clip(RoundedCornerShape(14.dp))
-                        .background(if (tool == "Video/Photo") panel2 else panel)
+                    Modifier.width(68.dp).clip(RoundedCornerShape(13.dp))
+                        .background(if (tool == "Video/Photo") Color(0xFF3A4028) else panel)
                         .clickable {
                             when (tool) {
                                 "Video/Photo" -> import("visual")
@@ -1466,7 +1456,7 @@ private fun EditorScreen(
                         null,
                         tint = Color.White
                     )
-                    Text(tool, fontSize = 11.sp, color = muted)
+                    Text(tool, fontSize = 10.sp, color = if (tool == "Video/Photo") lime else muted)
                 }
             }
         }
@@ -1529,7 +1519,7 @@ private fun TimelineTrack(
                     val clip = entry.value
                     val cardWidth = (clip.durationMs / 1000f * 24f).coerceIn(104f, 184f).dp
                     Column(
-                        Modifier.width(cardWidth).height(58.dp).clip(RoundedCornerShape(8.dp))
+                        Modifier.width(cardWidth).height(54.dp).clip(RoundedCornerShape(9.dp))
                             .background(if (index == selected) Color(0xFF514D55) else panel)
                             .border(if (index == selected) 1.dp else 0.dp, if (index == selected) lime else Color.Transparent, RoundedCornerShape(8.dp))
                             .clickable { onSelect(index) }
