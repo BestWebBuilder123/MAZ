@@ -100,7 +100,10 @@ data class MediaClip(
     val volume: Float = 1f,
     val speed: Float = 1f,
     val fadeInMs: Long = 0L,
-    val fadeOutMs: Long = 0L
+    val fadeOutMs: Long = 0L,
+    val hueAdjustment: Float = 0f,
+    val saturationAdjustment: Float = 0f,
+    val lightnessAdjustment: Float = 0f
 )
 
 data class TextLayer(
@@ -350,7 +353,10 @@ class MainActivity : ComponentActivity() {
                         volume = raw.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f),
                         speed = raw.optDouble("speed", 1.0).toFloat().coerceIn(0.25f, 4f),
                         fadeInMs = raw.optLong("fadeInMs", 0L).coerceAtLeast(0L),
-                        fadeOutMs = raw.optLong("fadeOutMs", 0L).coerceAtLeast(0L)
+                        fadeOutMs = raw.optLong("fadeOutMs", 0L).coerceAtLeast(0L),
+                        hueAdjustment = raw.optDouble("hueAdjustment", 0.0).toFloat().coerceIn(-180f, 180f),
+                        saturationAdjustment = raw.optDouble("saturationAdjustment", 0.0).toFloat().coerceIn(-100f, 100f),
+                        lightnessAdjustment = raw.optDouble("lightnessAdjustment", 0.0).toFloat().coerceIn(-100f, 100f)
                     )
                 } else {
                     val legacyUri = raw.toString()
@@ -410,6 +416,9 @@ class MainActivity : ComponentActivity() {
                         .put("speed", c.speed.toDouble())
                         .put("fadeInMs", c.fadeInMs)
                         .put("fadeOutMs", c.fadeOutMs)
+                        .put("hueAdjustment", c.hueAdjustment.toDouble())
+                        .put("saturationAdjustment", c.saturationAdjustment.toDouble())
+                        .put("lightnessAdjustment", c.lightnessAdjustment.toDouble())
                 )
             }
             val textLayers = JSONArray()
@@ -511,7 +520,15 @@ class MainActivity : ComponentActivity() {
                 .setEffects(
                     Effects(
                         listOf(gainProcessorFor(clip)),
-                        emptyList()
+                        if (clip.hueAdjustment != 0f || clip.saturationAdjustment != 0f || clip.lightnessAdjustment != 0f) {
+                            listOf(
+                                HslAdjustment.Builder()
+                                    .adjustHue(clip.hueAdjustment)
+                                    .adjustSaturation(clip.saturationAdjustment)
+                                    .adjustLightness(clip.lightnessAdjustment)
+                                    .build()
+                            )
+                        } else emptyList()
                     )
                 )
             if (clip.kind == "video") editedBuilder.setSpeed(constantSpeed(clip.speed))
@@ -617,9 +634,9 @@ class MainActivity : ComponentActivity() {
         if (project.hueAdjustment != 0f || project.saturationAdjustment != 0f || project.lightnessAdjustment != 0f) {
             videoEffects.add(
                 HslAdjustment.Builder()
-                    .adjustHue(project.hueAdjustment)
-                    .adjustSaturation(project.saturationAdjustment)
-                    .adjustLightness(project.lightnessAdjustment)
+                    .adjustHue((project.hueAdjustment + (active?.hueAdjustment ?: 0f)).coerceIn(-180f, 180f))
+                    .adjustSaturation((project.saturationAdjustment + (active?.saturationAdjustment ?: 0f)).coerceIn(-100f, 100f))
+                    .adjustLightness((project.lightnessAdjustment + (active?.lightnessAdjustment ?: 0f)).coerceIn(-100f, 100f))
                     .build()
             )
         }
@@ -1077,6 +1094,9 @@ private fun EditorScreen(
         active?.uri,
         active?.trimStartMs,
         active?.trimEndMs,
+        active?.hueAdjustment,
+        active?.saturationAdjustment,
+        active?.lightnessAdjustment,
         project.hueAdjustment,
         project.saturationAdjustment,
         project.lightnessAdjustment
@@ -1376,6 +1396,18 @@ private fun EditorScreen(
                             )
                         }
                     }
+                }
+            }
+            if (active != null && (active.kind == "video" || active.kind == "image")) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp)) {
+                    Text("CLIP COLOR", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("Hue  " + active.hueAdjustment.toInt() + "°", color = muted, fontSize = 10.sp)
+                    Slider(value = active.hueAdjustment, onValueChange = { updateClip(selected, active.copy(hueAdjustment = it)) }, valueRange = -180f..180f)
+                    Text("Saturation  " + active.saturationAdjustment.toInt(), color = muted, fontSize = 10.sp)
+                    Slider(value = active.saturationAdjustment, onValueChange = { updateClip(selected, active.copy(saturationAdjustment = it)) }, valueRange = -100f..100f)
+                    Text("Lightness  " + active.lightnessAdjustment.toInt(), color = muted, fontSize = 10.sp)
+                    Slider(value = active.lightnessAdjustment, onValueChange = { updateClip(selected, active.copy(lightnessAdjustment = it)) }, valueRange = -100f..100f)
+                    Text("These adjustments affect only this clip.", color = muted, fontSize = 9.sp)
                 }
             }
             if (active != null && duration > 0L) {
