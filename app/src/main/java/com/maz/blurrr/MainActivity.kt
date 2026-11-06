@@ -432,7 +432,19 @@ class MainActivity : ComponentActivity() {
         val visualSequence = EditedMediaItemSequence.withAudioAndVideoFrom(visualItems)
         val compositionBuilder = if (audioClips.isNotEmpty()) {
             val audioItems = audioClips.map { clip ->
-                EditedMediaItem.Builder(MediaItem.fromUri(Uri.parse(clip.uri))).build()
+                val builder = MediaItem.Builder().setUri(Uri.parse(clip.uri))
+                if (clip.trimStartMs > 0L || clip.trimEndMs > 0L) {
+                    val end = if (clip.trimEndMs > 0L) clip.trimEndMs else clip.durationMs
+                    if (end > clip.trimStartMs) {
+                        builder.setClippingConfiguration(
+                            MediaItem.ClippingConfiguration.Builder()
+                                .setStartPositionMs(clip.trimStartMs)
+                                .setEndPositionMs(end)
+                                .build()
+                        )
+                    }
+                }
+                EditedMediaItem.Builder(builder.build()).build()
             }
             val audioSequence = EditedMediaItemSequence.withAudioFrom(audioItems)
                 .buildUpon()
@@ -1051,9 +1063,9 @@ private fun EditorScreen(
                     }
                 }
             }
-            if (active != null && active.kind != "audio" && duration > 0L) {
+            if (active != null && duration > 0L) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)) {
-                    Text("Trim start  " + formatDuration(active.trimStartMs), color = muted, fontSize = 10.sp)
+                    Text((if (active.kind == "audio") "Audio trim start  " else "Trim start  ") + formatDuration(active.trimStartMs), color = muted, fontSize = 10.sp)
                     Slider(
                         value = active.trimStartMs.coerceIn(0L, (duration - 250L).coerceAtLeast(0L)).toFloat(),
                         onValueChange = { value ->
@@ -1063,7 +1075,7 @@ private fun EditorScreen(
                         },
                         valueRange = 0f..(duration - 250L).coerceAtLeast(0L).toFloat()
                     )
-                    Text("Trim end  " + formatDuration(endValue), color = muted, fontSize = 10.sp)
+                    Text((if (active.kind == "audio") "Audio trim end  " else "Trim end  ") + formatDuration(endValue), color = muted, fontSize = 10.sp)
                     Slider(
                         value = endValue.coerceIn((active.trimStartMs + 250L).coerceAtMost(duration), duration).toFloat(),
                         onValueChange = { value ->
