@@ -498,8 +498,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchApkInstaller(apkFile: File) {
+        getSharedPreferences("blurrr", MODE_PRIVATE).edit().remove("pending_update_apk").apply()
         if (!apkFile.exists() || apkFile.length() < 1024L) {
-            getSharedPreferences("blurrr", MODE_PRIVATE).edit().remove("pending_update_apk").apply()
             return
         }
         val apkUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
