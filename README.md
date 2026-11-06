@@ -1,15 +1,14 @@
 # MAZ for Android
 
-MAZ is a clean native Android app shell. The previous editor implementation and its app features have been removed.
+MAZ is a personal hub for tools, apps, and social shortcuts.
+
+## Included
+- **Tools / Apps / Socials** sections
+- **TikTube**, a YouTube and TikTok link utility
+- Add personal website shortcuts with the plus button
+- Personal shortcuts are saved locally on the device
+
+TikTube uses third-party video information services. Availability can change. Only save media you own or have permission to download.
 
 ## Build
-
-Pushes to `main` build a debug APK with GitHub Actions. Open the repository's **Actions** tab, select a successful **Android APK** run, and download the `maz-android-apk` artifact.
-
-Tagged builds publish `maz-android.apk` as a GitHub Release after release signing is configured.
-
-## App identity
-
-- Display name: MAZ
-- Application ID: `com.maz.blurrr` (preserved so the existing app identity remains update-compatible)
-- Minimum Android version: Android 8.0 (API 26)
+GitHub Actions builds a debug APK on pushes to `main`. Download the `maz-android-apk` artifact from the successful workflow run.
