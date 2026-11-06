@@ -69,6 +69,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -933,6 +934,7 @@ private fun EditorScreen(
 ) {
     var selected by remember(project.id) { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
+    var previewPosition by remember(project.id) { mutableLongStateOf(0L) }
     val active = project.clips.getOrNull(selected)
     val context = LocalContext.current
     val previewPlayer = remember(project.id) { ExoPlayer.Builder(context).build() }
@@ -956,6 +958,8 @@ private fun EditorScreen(
             }
             previewPlayer.setMediaItem(mediaBuilder.build())
             previewPlayer.prepare()
+            previewPosition = 0L
+            previewPlayer.seekTo(0L)
             previewPlayer.playWhenReady = playing
         } else {
             previewPlayer.clearMediaItems()
@@ -963,6 +967,10 @@ private fun EditorScreen(
     }
     LaunchedEffect(playing) {
         previewPlayer.playWhenReady = playing
+        while (playing) {
+            previewPosition = previewPlayer.currentPosition.coerceAtLeast(0L)
+            delay(120L)
+        }
     }
     var showTextDialog by remember { mutableStateOf(false) }
     var editingTextLayer by remember { mutableStateOf<TextLayer?>(null) }
@@ -1059,6 +1067,24 @@ private fun EditorScreen(
                         modifier = Modifier.align(alignment).padding(12.dp)
                     )
                 }
+            }
+        }
+
+        if (active != null && active.kind != "image" && duration > 0L) {
+            val previewDuration = (endValue - active.trimStartMs).coerceAtLeast(1L)
+            Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp)) {
+                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text(formatDuration(previewPosition + active.trimStartMs), color = muted, fontSize = 10.sp)
+                    Text(formatDuration(endValue), color = muted, fontSize = 10.sp)
+                }
+                Slider(
+                    value = previewPosition.coerceIn(0L, previewDuration).toFloat(),
+                    onValueChange = { value ->
+                        previewPosition = value.toLong()
+                        previewPlayer.seekTo(value.toLong())
+                    },
+                    valueRange = 0f..previewDuration.toFloat()
+                )
             }
         }
 
