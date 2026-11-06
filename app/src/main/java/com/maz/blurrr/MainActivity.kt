@@ -270,7 +270,15 @@ class MainActivity : ComponentActivity() {
                             onNew = { newDialog = true },
                             onOpen = { current = it; screen = "editor" },
                             onSettings = { screen = "settings" },
-                            onImport = { launchPicker("all") }
+                            onImport = { launchPicker("all") },
+                            onRename = { project, name ->
+                                projects = projects.map { if (it.id == project.id) it.copy(name = name) else it }
+                                saveProjects(projects)
+                            },
+                            onDelete = { project ->
+                                projects = projects.filterNot { it.id == project.id }
+                                saveProjects(projects)
+                            }
                         )
                     }
 
@@ -775,8 +783,14 @@ private fun HomeScreen(
     onNew: () -> Unit,
     onOpen: (Project) -> Unit,
     onSettings: () -> Unit,
-    onImport: () -> Unit
+    onImport: () -> Unit,
+    onRename: (Project, String) -> Unit,
+    onDelete: (Project) -> Unit
 ) {
+    var menuProjectId by remember { mutableStateOf<String?>(null) }
+    var renameProject by remember { mutableStateOf<Project?>(null) }
+    var deleteProject by remember { mutableStateOf<Project?>(null) }
+    var renameValue by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(vertical = 16.dp),
@@ -841,7 +855,34 @@ private fun HomeScreen(
                             Text(project.ratio + " • " + project.fps + " FPS", color = muted, fontSize = 11.sp)
                             Text(project.resolution + " • " + project.clips.size + " media", color = muted, fontSize = 11.sp)
                         }
-                        Icon(Icons.Default.ChevronRight, null, tint = muted)
+                        Box {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                null,
+                                tint = muted,
+                                modifier = Modifier.clickable { menuProjectId = project.id }
+                            )
+                            DropdownMenu(
+                                expanded = menuProjectId == project.id,
+                                onDismissRequest = { menuProjectId = null }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    onClick = {
+                                        renameValue = project.name
+                                        renameProject = project
+                                        menuProjectId = null
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        deleteProject = project
+                                        menuProjectId = null
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -854,6 +895,48 @@ private fun HomeScreen(
             Nav("Creation", Icons.Default.AddBox, true, onNew)
             Nav("My", Icons.Default.AccountCircle, false, onSettings)
         }
+    }
+    renameProject?.let { project ->
+        AlertDialog(
+            onDismissRequest = { renameProject = null },
+            containerColor = panel,
+            title = { Text("Rename project") },
+            text = {
+                OutlinedTextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it },
+                    singleLine = true,
+                    label = { Text("Project name") }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val name = renameValue.trim()
+                        if (name.isNotEmpty()) onRename(project, name)
+                        renameProject = null
+                    },
+                    enabled = renameValue.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
+                ) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { renameProject = null }) { Text("Cancel") } }
+        )
+    }
+    deleteProject?.let { project ->
+        AlertDialog(
+            onDismissRequest = { deleteProject = null },
+            containerColor = panel,
+            title = { Text("Delete project?") },
+            text = { Text("“" + project.name + "” will be removed from this device.") },
+            confirmButton = {
+                Button(
+                    onClick = { onDelete(project); deleteProject = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E), contentColor = Color.White)
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteProject = null }) { Text("Cancel") } }
+        )
     }
 }
 
