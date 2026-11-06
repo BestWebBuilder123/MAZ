@@ -98,7 +98,9 @@ data class MediaClip(
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
     val volume: Float = 1f,
-    val speed: Float = 1f
+    val speed: Float = 1f,
+    val fadeInMs: Long = 0L,
+    val fadeOutMs: Long = 0L
 )
 
 data class TextLayer(
@@ -336,7 +338,9 @@ class MainActivity : ComponentActivity() {
                         trimStartMs = raw.optLong("trimStartMs", 0L),
                         trimEndMs = raw.optLong("trimEndMs", 0L),
                         volume = raw.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f),
-                        speed = raw.optDouble("speed", 1.0).toFloat().coerceIn(0.25f, 4f)
+                        speed = raw.optDouble("speed", 1.0).toFloat().coerceIn(0.25f, 4f),
+                        fadeInMs = raw.optLong("fadeInMs", 0L).coerceAtLeast(0L),
+                        fadeOutMs = raw.optLong("fadeOutMs", 0L).coerceAtLeast(0L)
                     )
                 } else {
                     val legacyUri = raw.toString()
@@ -391,6 +395,8 @@ class MainActivity : ComponentActivity() {
                         .put("trimEndMs", c.trimEndMs)
                         .put("volume", c.volume.toDouble())
                         .put("speed", c.speed.toDouble())
+                        .put("fadeInMs", c.fadeInMs)
+                        .put("fadeOutMs", c.fadeOutMs)
                 )
             }
             val textLayers = JSONArray()
@@ -432,6 +438,26 @@ class MainActivity : ComponentActivity() {
     }
 
     @OptIn(UnstableApi::class)
+    private fun gainProcessorFor(clip: MediaClip): GainProcessor {
+        val clipEnd = if (clip.trimEndMs > 0L) clip.trimEndMs else clip.durationMs
+        val trimmedDurationMs = (clipEnd - clip.trimStartMs).coerceAtLeast(0L)
+        val fadeIn = clip.fadeInMs.coerceIn(0L, trimmedDurationMs)
+        val fadeOut = clip.fadeOutMs.coerceIn(0L, trimmedDurationMs)
+        val builder = DefaultGainProvider.Builder(clip.volume.coerceIn(0f, 1f))
+        if (fadeIn > 0L) {
+            builder.addFadeAt(0L, fadeIn * 1_000L, DefaultGainProvider.FADE_IN_LINEAR)
+        }
+        if (fadeOut > 0L) {
+            builder.addFadeAt(
+                (trimmedDurationMs - fadeOut).coerceAtLeast(0L) * 1_000L,
+                fadeOut * 1_000L,
+                DefaultGainProvider.FADE_OUT_LINEAR
+            )
+        }
+        return GainProcessor(builder.build())
+    }
+
+    @OptIn(UnstableApi::class)
     private fun constantSpeed(speed: Float): SpeedProvider {
         val safeSpeed = speed.coerceIn(0.25f, 4f)
         return object : SpeedProvider {
@@ -468,7 +494,7 @@ class MainActivity : ComponentActivity() {
                 .setFrameRate(project.fps.coerceIn(1, 120))
                 .setEffects(
                     Effects(
-                        listOf(GainProcessor(DefaultGainProvider.Builder(clip.volume.coerceIn(0f, 1f)).build())),
+                        listOf(gainProcessorFor(clip)),
                         emptyList()
                     )
                 )
@@ -495,7 +521,7 @@ class MainActivity : ComponentActivity() {
                     .setSpeed(constantSpeed(clip.speed))
                     .setEffects(
                         Effects(
-                            listOf(GainProcessor(DefaultGainProvider.Builder(clip.volume.coerceIn(0f, 1f)).build())),
+                            listOf(gainProcessorFor(clip)),
                             emptyList()
                         )
                     )
@@ -1288,6 +1314,21 @@ private fun EditorScreen(
                             onValueChange = { value -> updateClip(selected, active.copy(speed = value.coerceIn(0.25f, 4f))) },
                             valueRange = 0.25f..4f
                         )
+                        if (duration > 0L) {
+                            val maxFade = duration.coerceAtMost(5_000L).toFloat()
+                            Text("Fade in  " + String.format(Locale.US, "%.1fs", active.fadeInMs / 1000f), color = muted, fontSize = 10.sp)
+                            Slider(
+                                value = active.fadeInMs.coerceIn(0L, maxFade.toLong()).toFloat(),
+                                onValueChange = { value -> updateClip(selected, active.copy(fadeInMs = value.toLong())) },
+                                valueRange = 0f..maxFade
+                            )
+                            Text("Fade out  " + String.format(Locale.US, "%.1fs", active.fadeOutMs / 1000f), color = muted, fontSize = 10.sp)
+                            Slider(
+                                value = active.fadeOutMs.coerceIn(0L, maxFade.toLong()).toFloat(),
+                                onValueChange = { value -> updateClip(selected, active.copy(fadeOutMs = value.toLong())) },
+                                valueRange = 0f..maxFade
+                            )
+                        }
                     }
                 }
             }
