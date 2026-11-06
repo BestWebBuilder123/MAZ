@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.key
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.audio.DefaultGainProvider
 import androidx.media3.common.audio.GainProcessor
 import androidx.media3.common.audio.SpeedProvider
@@ -1020,7 +1021,9 @@ private fun EditorScreen(
     var previewPosition by remember(project.id) { mutableLongStateOf(0L) }
     val active = project.clips.getOrNull(selected)
     val context = LocalContext.current
-    val previewPlayer = remember(project.id) { ExoPlayer.Builder(context).build() }
+    val previewPlayer = remember(project.id) {
+        ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ONE }
+    }
     DisposableEffect(previewPlayer) {
         onDispose { previewPlayer.release() }
     }
@@ -1054,6 +1057,10 @@ private fun EditorScreen(
             previewPosition = previewPlayer.currentPosition.coerceAtLeast(0L)
             delay(120L)
         }
+    }
+    LaunchedEffect(active?.speed, active?.volume) {
+        previewPlayer.setPlaybackSpeed(active?.speed ?: 1f)
+        previewPlayer.volume = active?.volume ?: 1f
     }
     var showTextDialog by remember { mutableStateOf(false) }
     var editingTextLayer by remember { mutableStateOf<TextLayer?>(null) }
