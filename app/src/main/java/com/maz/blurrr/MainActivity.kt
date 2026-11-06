@@ -1289,6 +1289,7 @@ private fun EditorScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("TIMELINE", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                TimelineRuler()
                 Text(exportStatus, color = if (exporting) lime else muted, fontSize = 10.sp, maxLines = 1)
             }
             Column(
@@ -1505,47 +1506,75 @@ private fun TimelineTrack(
     moveClip: (Int, Int) -> Unit,
     removeClip: (Int) -> Unit
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(54.dp))
+    val laneColor = when (title) {
+        "AUDIO" -> Color(0xFF274B42)
+        "TEXT" -> Color(0xFF51402C)
+        else -> Color(0xFF343B50)
+    }
+    Row(Modifier.fillMaxWidth().height(66.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.width(54.dp).fillMaxHeight().padding(end = 5.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(when (title) { "AUDIO" -> Icons.Default.GraphicEq; "TEXT" -> Icons.Default.TextFields; else -> Icons.Default.Movie }, null,
+                tint = if (title == "AUDIO") Color(0xFF79D6B5) else if (title == "TEXT") Color(0xFFFFC66D) else Color(0xFF9DB4FF), modifier = Modifier.size(16.dp))
+            Text(title, color = muted, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+        }
         if (clips.isEmpty()) {
-            Text("＋ Add media", color = muted, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(7.dp)).background(Color(0xFF222126))
+                .border(1.dp, Color(0xFF38363D), RoundedCornerShape(7.dp)), contentAlignment = Alignment.CenterStart) {
+                Text("＋  Add clip", color = muted, fontSize = 10.sp, modifier = Modifier.padding(start = 10.dp))
+            }
         } else {
-            Row(
-                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+            Row(Modifier.weight(1f).fillMaxHeight().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                 clips.forEach { entry ->
                     val index = entry.index
                     val clip = entry.value
-                    val cardWidth = (clip.durationMs / 1000f * 24f).coerceIn(104f, 184f).dp
-                    Column(
-                        Modifier.width(cardWidth).height(54.dp).clip(RoundedCornerShape(9.dp))
-                            .background(if (index == selected) Color(0xFF514D55) else panel)
-                            .border(if (index == selected) 1.dp else 0.dp, if (index == selected) lime else Color.Transparent, RoundedCornerShape(8.dp))
-                            .clickable { onSelect(index) }
-                            .padding(horizontal = 7.dp, vertical = 5.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
+                    val cardWidth = (clip.durationMs / 1000f * 34f).coerceIn(92f, 260f).dp
+                    val isSelected = index == selected
+                    Column(Modifier.width(cardWidth).fillMaxHeight().padding(vertical = 3.dp).clip(RoundedCornerShape(7.dp))
+                        .background(if (isSelected) laneColor.copy(alpha = 0.95f) else laneColor.copy(alpha = 0.58f))
+                        .border(if (isSelected) 1.5.dp else 1.dp, if (isSelected) lime else laneColor.copy(alpha = 0.9f), RoundedCornerShape(7.dp))
+                        .clickable { onSelect(index) }.padding(horizontal = 7.dp, vertical = 5.dp), verticalArrangement = Arrangement.SpaceBetween) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                when (clip.kind) {
-                                    "audio" -> Icons.Default.MusicNote
-                                    "image" -> Icons.Default.Image
-                                    else -> Icons.Default.Movie
-                                },
-                                null,
-                                tint = lime,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(clip.name, color = Color.White, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f).padding(start = 5.dp))
-                            Icon(Icons.Default.Close, null, tint = muted, modifier = Modifier.size(15.dp).clickable { removeClip(index) })
+                            Icon(when (clip.kind) { "audio" -> Icons.Default.MusicNote; "image" -> Icons.Default.Image; else -> Icons.Default.Movie }, null,
+                                tint = if (clip.kind == "audio") Color(0xFF8BE0C3) else Color(0xFFB7C7FF), modifier = Modifier.size(12.dp))
+                            Text(clip.name, color = Color.White, fontSize = 9.sp, maxLines = 1, modifier = Modifier.weight(1f).padding(start = 4.dp))
+                            Icon(Icons.Default.Close, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(13.dp).clickable { removeClip(index) })
+                        }
+                        if (clip.kind == "audio") {
+                            Row(Modifier.fillMaxWidth().height(17.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                                repeat(22) { n ->
+                                    val wave = ((n * 17 + clip.name.length * 11) % 13 + 3) / 16f
+                                    Box(Modifier.width(2.dp).fillMaxHeight(wave).clip(RoundedCornerShape(2.dp)).background(Color(0xFF9CE8CB)))
+                                }
+                            }
+                        } else {
+                            Row(Modifier.fillMaxWidth().height(17.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                repeat(5) { n ->
+                                    Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(2.dp))
+                                        .background(if (isSelected) Color(0xFFB8C6FF).copy(alpha = 0.45f + n * 0.06f) else Color(0xFF8998C2).copy(alpha = 0.25f)))
+                                }
+                            }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(formatDuration(clip.durationMs), color = muted, fontSize = 9.sp, modifier = Modifier.weight(1f))
-                            Icon(Icons.Default.KeyboardArrowUp, null, tint = muted, modifier = Modifier.size(16.dp).clickable { moveClip(index, -1) })
-                            Icon(Icons.Default.KeyboardArrowDown, null, tint = muted, modifier = Modifier.size(16.dp).clickable { moveClip(index, 1) })
+                            Text(formatDuration(clip.durationMs), color = Color.White.copy(alpha = 0.75f), fontSize = 8.sp, modifier = Modifier.weight(1f))
+                            Icon(Icons.Default.KeyboardArrowUp, null, tint = Color.White.copy(alpha = 0.65f), modifier = Modifier.size(14.dp).clickable { moveClip(index, -1) })
+                            Icon(Icons.Default.KeyboardArrowDown, null, tint = Color.White.copy(alpha = 0.65f), modifier = Modifier.size(14.dp).clickable { moveClip(index, 1) })
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineRuler() {
+    Row(Modifier.fillMaxWidth().height(25.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(54.dp))
+        Row(Modifier.weight(1f).fillMaxHeight().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            repeat(16) { tick ->
+                Column(Modifier.width(68.dp).fillMaxHeight(), verticalArrangement = Arrangement.Bottom) {
+                    Text(if (tick % 2 == 0) formatDuration(tick * 1000L) else "", color = muted, fontSize = 8.sp)
+                    Box(Modifier.width(1.dp).height(if (tick % 2 == 0) 8.dp else 4.dp).background(Color(0xFF66636C)))
                 }
             }
         }
