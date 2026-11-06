@@ -1227,7 +1227,10 @@ private fun EditorScreen(
             )
         }
 
-        Column(Modifier.fillMaxWidth().weight(0.40f).background(Color(0xFF171619))) {
+        Column(
+            Modifier.fillMaxWidth().weight(0.40f).background(Color(0xFF171619))
+                .verticalScroll(rememberScrollState())
+        ) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1237,7 +1240,7 @@ private fun EditorScreen(
                 Text(exportStatus, color = if (exporting) lime else muted, fontSize = 10.sp, maxLines = 1)
             }
             Column(
-                Modifier.fillMaxWidth().weight(1f)
+                Modifier.fillMaxWidth().heightIn(max = 150.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
