@@ -6,13 +6,14 @@ Native Android recreation of the Blurrr editing workflow. The custom dark theme 
 
 - Native Jetpack Compose home, project setup, editor, and settings screens.
 - Local project persistence, including existing-project migration.
-- Import video, photo, and audio files with MIME type, display name, and duration detection.
+- Import video, photo, and audio files with MIME type, display name, and duration detection. The home Import action creates a project before opening the picker.
+- Rename and delete projects from the home screen.
 - Separate horizontal video and audio timeline tracks, with clip selection, reordering, and removal.
-- Per-clip trim start/end, volume, and playback-speed controls.
+- Per-clip trim start/end, volume, playback-speed, fade-in, and fade-out controls.
 - Media3 preview playback for selected video/audio clips, including scrubbing and live speed/volume changes.
+- HSL color adjustments are previewed during playback and applied during export.
 - Add, edit, and remove text layers with text, color, size, bold, and top/center/bottom placement.
-- HSL color adjustments and quick looks.
-- MP4 export with project aspect ratio, resolution, frame rate, clip trimming, clip speed/volume, HSL adjustments, text overlays, and an optional looping audio sequence.
+- MP4 export with project aspect ratio, resolution, frame rate, clip trimming, clip speed/volume/fades, HSL adjustments, text overlays, and an optional looping audio sequence.
 - Exports are saved to the device's Movies/Blurrr folder.
 - GitHub release update discovery, APK download, and Android package-installer handoff. Android still requires the user to approve installation.
 
