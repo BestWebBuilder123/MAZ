@@ -6,7 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border\nimport androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -180,7 +180,7 @@ private fun ToolCard(
     var lastTap by remember { mutableLongStateOf(0L) }
     androidx.compose.foundation.layout.Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp))
-            .background(Panel).borderStroke(Line, 19.dp)
+            .background(Panel).border(BorderStroke(1.dp, Line), RoundedCornerShape(19.dp))
             .combinedClickable(
                 onClick = {
                     val now = android.os.SystemClock.elapsedRealtime()
@@ -242,7 +242,7 @@ private fun AddToolDialog(onDismiss: () -> Unit, onSave: (String, String) -> Uni
         },
         confirmButton = {
             TextButton(
-                enabled = name.isNotBlank() && validWebUrl(url),
+                enabled = name.isNotBlank() && url.trim().contains(".") && !url.contains(" "),
                 onClick = { onSave(name.trim(), normalizeUrl(url.trim())) }
             ) { Text("Add") }
         },
