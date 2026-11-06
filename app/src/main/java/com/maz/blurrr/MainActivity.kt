@@ -19,7 +19,9 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.media.MediaMetadataRetriever
 import android.widget.ImageView
-import android.widget.VideoView
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -931,6 +933,36 @@ private fun EditorScreen(
 ) {
     var selected by remember(project.id) { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val previewPlayer = remember(project.id) { ExoPlayer.Builder(context).build() }
+    DisposableEffect(previewPlayer) {
+        onDispose { previewPlayer.release() }
+    }
+    LaunchedEffect(active?.uri, active?.trimStartMs, active?.trimEndMs) {
+        previewPlayer.pause()
+        if (active != null && active.kind != "image") {
+            val mediaBuilder = MediaItem.Builder().setUri(Uri.parse(active.uri))
+            if (active.trimStartMs > 0L || active.trimEndMs > 0L) {
+                val clipEnd = if (active.trimEndMs > 0L) active.trimEndMs else active.durationMs
+                if (clipEnd > active.trimStartMs) {
+                    mediaBuilder.setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(active.trimStartMs)
+                            .setEndPositionMs(clipEnd)
+                            .build()
+                    )
+                }
+            }
+            previewPlayer.setMediaItem(mediaBuilder.build())
+            previewPlayer.prepare()
+            previewPlayer.playWhenReady = playing
+        } else {
+            previewPlayer.clearMediaItems()
+        }
+    }
+    LaunchedEffect(playing) {
+        previewPlayer.playWhenReady = playing
+    }
     var showTextDialog by remember { mutableStateOf(false) }
     var editingTextLayer by remember { mutableStateOf<TextLayer?>(null) }
     var showEffectsDialog by remember { mutableStateOf(false) }
@@ -972,28 +1004,28 @@ private fun EditorScreen(
                     Text("No Display", color = Color.Gray)
                     Text("Import a video or photo to begin", fontSize = 11.sp, color = muted)
                 }
-            } else if (active.kind == "video") {
-                key(active.uri) {
-                    AndroidView(
-                        factory = { context ->
-                            VideoView(context).apply {
-                                tag = active.uri
-                                setVideoURI(Uri.parse(active.uri))
-                                setOnPreparedListener { player ->
-                                    player.isLooping = false
-                                    if (playing) start()
-                                }
-                            }
-                        },
-                        update = { view ->
-                            if (view.tag != active.uri) {
-                                view.tag = active.uri
-                                view.setVideoURI(Uri.parse(active.uri))
-                            }
-                            if (playing) view.start() else view.pause()
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+            } else if (active.kind != "image") {
+                AndroidView(
+                    factory = { playerContext ->
+                        PlayerView(playerContext).apply {
+                            player = previewPlayer
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                    },
+                    update = { view -> view.player = previewPlayer },
+                    modifier = Modifier.fillMaxSize()
+                )
+                if (active.kind == "audio") {
+                    Column(
+                        Modifier.align(Alignment.Center).clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xE6222024)).padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.MusicNote, null, tint = lime, modifier = Modifier.size(42.dp))
+                        Text(active.name, color = Color.White, maxLines = 2)
+                        Text("Audio preview", color = muted, fontSize = 11.sp)
+                    }
                 }
             } else if (active.kind == "image") {
                 AndroidView(
