@@ -1094,74 +1094,59 @@ private fun EditorScreen(
                 Text("TIMELINE", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Text(exportStatus, color = if (exporting) lime else muted, fontSize = 10.sp, maxLines = 1)
             }
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                Column(
-                    Modifier.width(86.dp).fillMaxHeight().background(Color(0xFF202023)).padding(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text("VIDEO", color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                    Text("AUDIO", color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
-                LazyColumn(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 6.dp)) {
-                    itemsIndexed(project.clips, key = { index, clip -> clip.uri + "_" + index }) { index, clip ->
+            Column(
+                Modifier.fillMaxWidth().weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TimelineTrack(
+                    title = "VIDEO",
+                    clips = project.clips.withIndex().filter { it.value.kind != "audio" }.toList(),
+                    selected = selected,
+                    onSelect = { selected = it; playing = false },
+                    moveClip = moveClip,
+                    removeClip = { index ->
+                        remove(index)
+                        selected = (selected - 1).coerceAtLeast(0)
+                    }
+                )
+                TimelineTrack(
+                    title = "AUDIO",
+                    clips = project.clips.withIndex().filter { it.value.kind == "audio" }.toList(),
+                    selected = selected,
+                    onSelect = { selected = it; playing = false },
+                    moveClip = moveClip,
+                    removeClip = { index ->
+                        remove(index)
+                        selected = (selected - 1).coerceAtLeast(0)
+                    }
+                )
+                if (project.textLayers.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("TEXT", color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(54.dp))
                         Row(
-                            Modifier.fillMaxWidth().padding(vertical = 3.dp)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(if (index == selected) Color(0xFF514D55) else panel)
-                                .clickable { selected = index; playing = false }
-                                .padding(horizontal = 8.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                when (clip.kind) {
-                                    "audio" -> Icons.Default.MusicNote
-                                    "image" -> Icons.Default.Image
-                                    else -> Icons.Default.Movie
-                                },
-                                null,
-                                tint = lime,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Column(Modifier.weight(1f).padding(horizontal = 7.dp)) {
-                                Text(clip.name, color = Color.White, fontSize = 11.sp, maxLines = 1)
-                                Text(formatDuration(clip.durationMs), color = muted, fontSize = 9.sp)
+                            project.textLayers.forEach { layer ->
+                                Row(
+                                    Modifier.width(150.dp).height(48.dp).clip(RoundedCornerShape(7.dp))
+                                        .background(Color(0xFF3A3025))
+                                        .clickable { editingTextLayer = layer; showTextDialog = true }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.TextFields, null, tint = Color(0xFFFFC45E), modifier = Modifier.size(17.dp))
+                                    Text(layer.text, color = Color.White, fontSize = 11.sp, maxLines = 2, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
+                                    Icon(Icons.Default.Close, null, tint = muted, modifier = Modifier.clickable { removeTextLayer(layer.id) }.size(19.dp))
+                                }
                             }
-                            Icon(
-                                Icons.Default.KeyboardArrowUp, null, tint = muted,
-                                modifier = Modifier.clickable { moveClip(index, -1) }.size(20.dp)
-                            )
-                            Icon(
-                                Icons.Default.KeyboardArrowDown, null, tint = muted,
-                                modifier = Modifier.clickable { moveClip(index, 1) }.size(20.dp)
-                            )
-                            Icon(
-                                Icons.Default.Close, null, tint = muted,
-                                modifier = Modifier.clickable { remove(index); selected = (selected - 1).coerceAtLeast(0) }.size(19.dp)
-                            )
                         }
                     }
-                    if (project.clips.isEmpty() && project.textLayers.isEmpty()) {
-                        item { Text("Add video, photo, music, or text below", color = muted, fontSize = 11.sp, modifier = Modifier.padding(14.dp)) }
-                    }
-                    items(project.textLayers, key = { "text_" + it.id }) { layer ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 3.dp)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(Color(0xFF3A3025))
-                                .clickable { editingTextLayer = layer; showTextDialog = true }
-                                .padding(horizontal = 8.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.TextFields, null, tint = Color(0xFFFFC45E), modifier = Modifier.size(17.dp))
-                            Text(layer.text, color = Color.White, fontSize = 11.sp, maxLines = 1, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
-                            Icon(
-                                Icons.Default.Close,
-                                null,
-                                tint = muted,
-                                modifier = Modifier.clickable { removeTextLayer(layer.id) }.size(19.dp)
-                            )
-                        }
-                    }
+                }
+                if (project.clips.isEmpty() && project.textLayers.isEmpty()) {
+                    Text("Add video, photo, music, or text below", color = muted, fontSize = 11.sp, modifier = Modifier.padding(14.dp))
                 }
             }
             if (active != null && active.kind != "image") {
@@ -1275,6 +1260,62 @@ private fun EditorScreen(
             text = { Text(message) },
             confirmButton = { TextButton(onClick = { toolNotice = null }) { Text("OK") } }
         )
+    }
+}
+
+@Composable
+private fun TimelineTrack(
+    title: String,
+    clips: List<IndexedValue<MediaClip>>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    moveClip: (Int, Int) -> Unit,
+    removeClip: (Int) -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(54.dp))
+        if (clips.isEmpty()) {
+            Text("＋ Add media", color = muted, fontSize = 10.sp, modifier = Modifier.padding(8.dp))
+        } else {
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                clips.forEach { entry ->
+                    val index = entry.index
+                    val clip = entry.value
+                    val cardWidth = (clip.durationMs / 1000f * 24f).coerceIn(104f, 184f).dp
+                    Column(
+                        Modifier.width(cardWidth).height(58.dp).clip(RoundedCornerShape(8.dp))
+                            .background(if (index == selected) Color(0xFF514D55) else panel)
+                            .border(if (index == selected) 1.dp else 0.dp, if (index == selected) lime else Color.Transparent, RoundedCornerShape(8.dp))
+                            .clickable { onSelect(index) }
+                            .padding(horizontal = 7.dp, vertical = 5.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                when (clip.kind) {
+                                    "audio" -> Icons.Default.MusicNote
+                                    "image" -> Icons.Default.Image
+                                    else -> Icons.Default.Movie
+                                },
+                                null,
+                                tint = lime,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(clip.name, color = Color.White, fontSize = 10.sp, maxLines = 1, modifier = Modifier.weight(1f).padding(start = 5.dp))
+                            Icon(Icons.Default.Close, null, tint = muted, modifier = Modifier.size(15.dp).clickable { removeClip(index) })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(formatDuration(clip.durationMs), color = muted, fontSize = 9.sp, modifier = Modifier.weight(1f))
+                            Icon(Icons.Default.KeyboardArrowUp, null, tint = muted, modifier = Modifier.size(16.dp).clickable { moveClip(index, -1) })
+                            Icon(Icons.Default.KeyboardArrowDown, null, tint = muted, modifier = Modifier.size(16.dp).clickable { moveClip(index, 1) })
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
