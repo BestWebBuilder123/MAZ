@@ -49,6 +49,7 @@ import androidx.compose.runtime.key
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.HslAdjustment
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.effect.TextOverlay
@@ -105,6 +106,9 @@ data class Project(
     val fps: Int,
     val clips: List<MediaClip> = emptyList(),
     val textLayers: List<TextLayer> = emptyList(),
+    val hueAdjustment: Float = 0f,
+    val saturationAdjustment: Float = 0f,
+    val lightnessAdjustment: Float = 0f,
     val id: String = UUID.randomUUID().toString()
 )
 
@@ -199,6 +203,16 @@ class MainActivity : ComponentActivity() {
                                     },
                                     removeTextLayer = { layerId ->
                                         val changed = project.copy(textLayers = project.textLayers.filterNot { it.id == layerId })
+                                        current = changed
+                                        projects = projects.map { if (it.id == project.id) changed else it }
+                                        saveProjects(projects)
+                                    },
+                                    updateColorEffects = { hue, saturation, lightness ->
+                                        val changed = project.copy(
+                                            hueAdjustment = hue,
+                                            saturationAdjustment = saturation,
+                                            lightnessAdjustment = lightness
+                                        )
                                         current = changed
                                         projects = projects.map { if (it.id == project.id) changed else it }
                                         saveProjects(projects)
@@ -326,6 +340,9 @@ class MainActivity : ComponentActivity() {
                 fps = obj.optInt("fps", 30),
                 clips = clips,
                 textLayers = textLayers,
+                hueAdjustment = obj.optDouble("hueAdjustment", 0.0).toFloat(),
+                saturationAdjustment = obj.optDouble("saturationAdjustment", 0.0).toFloat(),
+                lightnessAdjustment = obj.optDouble("lightnessAdjustment", 0.0).toFloat(),
                 id = obj.optString("id", UUID.randomUUID().toString())
             )
         }
@@ -368,6 +385,9 @@ class MainActivity : ComponentActivity() {
                     .put("fps", p.fps)
                     .put("clips", clips)
                     .put("textLayers", textLayers)
+                    .put("hueAdjustment", p.hueAdjustment.toDouble())
+                    .put("saturationAdjustment", p.saturationAdjustment.toDouble())
+                    .put("lightnessAdjustment", p.lightnessAdjustment.toDouble())
             )
         }
         getSharedPreferences("blurrr", MODE_PRIVATE).edit().putString("projects", array.toString()).apply()
@@ -458,8 +478,21 @@ class MainActivity : ComponentActivity() {
                     .build()
                 TextOverlay.createStaticTextOverlay(styledText, overlaySettings)
             }
+        val videoEffects = mutableListOf<androidx.media3.common.Effect>()
+        if (project.hueAdjustment != 0f || project.saturationAdjustment != 0f || project.lightnessAdjustment != 0f) {
+            videoEffects.add(
+                HslAdjustment.Builder()
+                    .adjustHue(project.hueAdjustment)
+                    .adjustSaturation(project.saturationAdjustment)
+                    .adjustLightness(project.lightnessAdjustment)
+                    .build()
+            )
+        }
         if (textOverlays.isNotEmpty()) {
-            compositionBuilder.setEffects(Effects(emptyList(), listOf(OverlayEffect(textOverlays))))
+            videoEffects.add(OverlayEffect(textOverlays))
+        }
+        if (videoEffects.isNotEmpty()) {
+            compositionBuilder.setEffects(Effects(emptyList(), videoEffects))
         }
         val composition = compositionBuilder.build()
 
@@ -814,11 +847,13 @@ private fun EditorScreen(
     moveClip: (Int, Int) -> Unit,
     addTextLayer: (TextLayer) -> Unit,
     removeTextLayer: (String) -> Unit,
+    updateColorEffects: (Float, Float, Float) -> Unit,
     onExport: () -> Unit
 ) {
     var selected by remember(project.id) { mutableIntStateOf(0) }
     var playing by remember { mutableStateOf(false) }
     var showTextDialog by remember { mutableStateOf(false) }
+    var showEffectsDialog by remember { mutableStateOf(false) }
     var toolNotice by remember { mutableStateOf<String?>(null) }
     val active = project.clips.getOrNull(selected)
     val duration = active?.durationMs ?: 0L
@@ -1053,6 +1088,7 @@ private fun EditorScreen(
                                 "Video/Photo" -> import("visual")
                                 "Music" -> import("audio")
                                 "Text" -> showTextDialog = true
+                                "Fx" -> showEffectsDialog = true
                                 else -> toolNotice = "$tool editing is still being built."
                             }
                         }
@@ -1083,6 +1119,18 @@ private fun EditorScreen(
             save = { layer ->
                 addTextLayer(layer)
                 showTextDialog = false
+            }
+        )
+    }
+    if (showEffectsDialog) {
+        ColorEffectsDialog(
+            initialHue = project.hueAdjustment,
+            initialSaturation = project.saturationAdjustment,
+            initialLightness = project.lightnessAdjustment,
+            close = { showEffectsDialog = false },
+            apply = { hue, saturation, lightness ->
+                updateColorEffects(hue, saturation, lightness)
+                showEffectsDialog = false
             }
         )
     }
@@ -1177,6 +1225,61 @@ private fun TextLayerDialog(
                 enabled = value.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
             ) { Text("Add to timeline") }
+        },
+        dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ColorEffectsDialog(
+    initialHue: Float,
+    initialSaturation: Float,
+    initialLightness: Float,
+    close: () -> Unit,
+    apply: (Float, Float, Float) -> Unit
+) {
+    var hue by remember { mutableFloatStateOf(initialHue) }
+    var saturation by remember { mutableFloatStateOf(initialSaturation) }
+    var lightness by remember { mutableFloatStateOf(initialLightness) }
+
+    AlertDialog(
+        onDismissRequest = close,
+        containerColor = panel,
+        title = { Text("Color effects") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Quick looks", color = muted, fontSize = 12.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    FilterChip(
+                        selected = hue == 0f && saturation == 0f && lightness == 0f,
+                        onClick = { hue = 0f; saturation = 0f; lightness = 0f },
+                        label = { Text("Original") }
+                    )
+                    FilterChip(
+                        selected = saturation == 35f,
+                        onClick = { hue = 0f; saturation = 35f; lightness = 0f },
+                        label = { Text("Vivid") }
+                    )
+                    FilterChip(
+                        selected = saturation == -100f,
+                        onClick = { hue = 0f; saturation = -100f; lightness = 0f },
+                        label = { Text("Mono") }
+                    )
+                }
+                Text("Hue  " + hue.toInt() + "°", color = muted, fontSize = 12.sp)
+                Slider(value = hue, onValueChange = { hue = it }, valueRange = -180f..180f)
+                Text("Saturation  " + saturation.toInt(), color = muted, fontSize = 12.sp)
+                Slider(value = saturation, onValueChange = { saturation = it }, valueRange = -100f..100f)
+                Text("Lightness  " + lightness.toInt(), color = muted, fontSize = 12.sp)
+                Slider(value = lightness, onValueChange = { lightness = it }, valueRange = -100f..100f)
+                Text("These adjustments are applied when the video is exported.", color = muted, fontSize = 10.sp)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { apply(hue, saturation, lightness) },
+                colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
+            ) { Text("Apply") }
         },
         dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
     )
