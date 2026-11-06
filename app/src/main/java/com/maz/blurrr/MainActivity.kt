@@ -427,7 +427,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            EditedMediaItem.Builder(builder.build()).build()
+            EditedMediaItem.Builder(builder.build())
+                .setFrameRate(project.fps.coerceIn(1, 120))
+                .build()
         }
 
         val visualSequence = EditedMediaItemSequence.withAudioAndVideoFrom(visualItems)
