@@ -1224,7 +1224,11 @@ private fun EditorScreen(
                     moveClip = moveClip,
                     removeClip = { index ->
                         remove(index)
-                        selected = (selected - 1).coerceAtLeast(0)
+                        selected = when {
+                            selected > index -> selected - 1
+                            selected == index -> index.coerceAtMost(project.clips.lastIndex - 1).coerceAtLeast(0)
+                            else -> selected
+                        }
                     }
                 )
                 TimelineTrack(
@@ -1235,7 +1239,11 @@ private fun EditorScreen(
                     moveClip = moveClip,
                     removeClip = { index ->
                         remove(index)
-                        selected = (selected - 1).coerceAtLeast(0)
+                        selected = when {
+                            selected > index -> selected - 1
+                            selected == index -> index.coerceAtMost(project.clips.lastIndex - 1).coerceAtLeast(0)
+                            else -> selected
+                        }
                     }
                 )
                 if (project.textLayers.isNotEmpty()) {
