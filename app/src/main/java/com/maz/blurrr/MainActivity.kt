@@ -1103,9 +1103,9 @@ private fun EditorScreen(
     ) {
         previewPlayer.pause()
         val previewEffects = if (
-            project.hueAdjustment != 0f ||
-            project.saturationAdjustment != 0f ||
-            project.lightnessAdjustment != 0f
+            project.hueAdjustment + (active?.hueAdjustment ?: 0f) != 0f ||
+            project.saturationAdjustment + (active?.saturationAdjustment ?: 0f) != 0f ||
+            project.lightnessAdjustment + (active?.lightnessAdjustment ?: 0f) != 0f
         ) {
             listOf(
                 HslAdjustment.Builder()
