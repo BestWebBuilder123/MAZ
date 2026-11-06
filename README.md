@@ -31,4 +31,4 @@ The current update screen discovers a newer GitHub release. The in-app APK downl
 
 ## Remaining editor work
 
-This is an active build, not a claim of full Blurrr feature parity. Advanced effects, text/shape layers, keyframe animation, transitions, precise multi-track timeline playback, and export options still need implementation and device testing.
+This is an active build based on the supplied screen references, not a claim of full Blurrr feature parity. The project uses Android Gradle Plugin 8.13.2, Kotlin 2.3.10, API 36 compile SDK, and Media3 Transformer 1.11.1. Advanced effects, text/shape layers, keyframe animation, transitions, precise multi-track timeline playback, and export options still need implementation and device testing.
