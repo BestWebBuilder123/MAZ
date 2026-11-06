@@ -6,7 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border\nimport androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -214,7 +215,7 @@ private fun Modifier.borderStroke(color: Color, radius: Int) =
 @Composable
 private fun EmptySection(title: String, subtitle: String) {
     Column(
-        Modifier.fillMaxWidth().weight(1f),
+        Modifier.fillMaxWidth().fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
