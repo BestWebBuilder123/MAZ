@@ -1,9 +1,16 @@
 package com.maz.blurrr
 
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.view.View
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.media.MediaMetadataRetriever
 import android.widget.ImageView
 import android.widget.VideoView
 import androidx.activity.ComponentActivity
@@ -13,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,141 +35,850 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.key
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
+import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 
-private val bg=Color(0xFF1D1B1E)
-private val panel=Color(0xFF29272A)
-private val panel2=Color(0xFF353236)
-private val lime=Color(0xFFD5FF35)
-private val muted=Color(0xFF969197)
-data class Project(val name:String,val ratio:String,val resolution:String,val fps:Int,val clips:List<String> = emptyList())
+private val bg = Color(0xFF1D1B1E)
+private val panel = Color(0xFF29272A)
+private val panel2 = Color(0xFF353236)
+private val lime = Color(0xFFD5FF35)
+private val muted = Color(0xFF969197)
 
-class MainActivity:ComponentActivity(){
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState)
-  setContent {
-   var projects by remember { mutableStateOf(loadProjects()) }
-   var screen by remember { mutableStateOf("home") }
-   var current by remember { mutableStateOf<Project?>(null) }
-   var newDialog by remember { mutableStateOf(false) }
-   var accent by remember { mutableStateOf(getAccent()) }
-   var updateText by remember { mutableStateOf("Checking GitHub…") }
-   var updateUrl by remember { mutableStateOf<String?>(null) }
-   val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()){ uris ->
-    val p=current
-    if(p!=null && uris.isNotEmpty()){
-     uris.forEach { runCatching { contentResolver.takePersistableUriPermission(it,Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
-     val changed=p.copy(clips=p.clips+uris.map{it.toString()})
-     current=changed
-     projects=projects.map{if(it.name==p.name) changed else it}
-     saveProjects(projects)
+data class MediaClip(
+    val uri: String,
+    val name: String,
+    val mimeType: String,
+    val kind: String,
+    val durationMs: Long = 0L,
+    val trimStartMs: Long = 0L,
+    val trimEndMs: Long = 0L
+)
+
+data class Project(
+    val name: String,
+    val ratio: String,
+    val resolution: String,
+    val fps: Int,
+    val clips: List<MediaClip> = emptyList(),
+    val id: String = UUID.randomUUID().toString()
+)
+
+class MainActivity : ComponentActivity() {
+    private var currentTransformer: Transformer? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            var projects by remember { mutableStateOf(loadProjects()) }
+            var screen by remember { mutableStateOf("home") }
+            var current by remember { mutableStateOf<Project?>(null) }
+            var newDialog by remember { mutableStateOf(false) }
+            var accent by remember { mutableStateOf(getAccent()) }
+            var updateText by remember { mutableStateOf("Checking GitHub…") }
+            var updateUrl by remember { mutableStateOf<String?>(null) }
+            var exporting by remember { mutableStateOf(false) }
+            var exportStatus by remember { mutableStateOf("Ready to export") }
+
+            val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                val p = current
+                if (p != null && uris.isNotEmpty()) {
+                    val added = uris.mapNotNull { uri ->
+                        runCatching {
+                            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        readClip(uri)
+                    }
+                    val changed = p.copy(clips = p.clips + added)
+                    current = changed
+                    projects = projects.map { if (it.id == p.id) changed else it }
+                    saveProjects(projects)
+                }
+            }
+
+            fun launchPicker(kind: String) {
+                val types = when (kind) {
+                    "audio" -> arrayOf("audio/*")
+                    "visual" -> arrayOf("video/*", "image/*")
+                    else -> arrayOf("video/*", "image/*", "audio/*")
+                }
+                picker.launch(types)
+            }
+
+            LaunchedEffect(Unit) {
+                updateUrl = latestUpdate()
+                updateText = if (updateUrl == null) "You're using the latest published version." else "A newer version is available."
+            }
+
+            MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = bg, surface = panel)) {
+                Surface(Modifier.fillMaxSize(), color = bg) {
+                    when (screen) {
+                        "editor" -> {
+                            val project = current
+                            if (project != null) {
+                                EditorScreen(
+                                    project = project,
+                                    exporting = exporting,
+                                    exportStatus = exportStatus,
+                                    back = { screen = "home" },
+                                    import = { launchPicker(it) },
+                                    remove = { index ->
+                                        val changed = project.copy(clips = project.clips.filterIndexed { i, _ -> i != index })
+                                        current = changed
+                                        projects = projects.map { if (it.id == project.id) changed else it }
+                                        saveProjects(projects)
+                                    },
+                                    updateClip = { index, clip ->
+                                        val changed = project.copy(clips = project.clips.mapIndexed { i, old -> if (i == index) clip else old })
+                                        current = changed
+                                        projects = projects.map { if (it.id == project.id) changed else it }
+                                        saveProjects(projects)
+                                    },
+                                    moveClip = { index, direction ->
+                                        val next = index + direction
+                                        if (next in project.clips.indices) {
+                                            val reordered = project.clips.toMutableList()
+                                            val item = reordered.removeAt(index)
+                                            reordered.add(next, item)
+                                            val changed = project.copy(clips = reordered)
+                                            current = changed
+                                            projects = projects.map { if (it.id == project.id) changed else it }
+                                            saveProjects(projects)
+                                        }
+                                    },
+                                    onExport = {
+                                        if (!exporting) {
+                                            exporting = true
+                                            exportStatus = "Preparing export…"
+                                            exportProject(project) { status ->
+                                                exportStatus = status
+                                                if (status.startsWith("Saved") || status.startsWith("Export failed")) exporting = false
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        "settings" -> SettingsScreen(
+                            accent = accent,
+                            setAccent = { accent = it; saveAccent(it) },
+                            update = updateText,
+                            download = { updateUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } },
+                            back = { screen = "home" }
+                        )
+                        else -> HomeScreen(
+                            projects = projects,
+                            onNew = { newDialog = true },
+                            onOpen = { current = it; screen = "editor" },
+                            onSettings = { screen = "settings" },
+                            onImport = { launchPicker("all") }
+                        )
+                    }
+
+                    if (newDialog) {
+                        NewProjectDialog(
+                            close = { newDialog = false },
+                            create = { p ->
+                                projects = listOf(p) + projects
+                                saveProjects(projects)
+                                current = p
+                                newDialog = false
+                                screen = "editor"
+                            }
+                        )
+                    }
+                }
+            }
+        }
     }
-   }
-   LaunchedEffect(Unit){updateUrl=latestUpdate();updateText=if(updateUrl==null)"No newer release found (or GitHub has no published release)." else "A newer version is available."}
-   MaterialTheme(colorScheme=darkColorScheme(primary=accent,background=bg,surface=panel)){
-    Surface(Modifier.fillMaxSize(),color=bg){
-     when(screen){
-      "editor" -> EditorScreen(current?:Project("Untitled","16:9","1080p",30),{screen="home"},{picker.launch(arrayOf("video/*","image/*","audio/*"))},{idx ->
-       val p=current ?: return@EditorScreen
-       val changed=p.copy(clips=p.clips.filterIndexed{ i,_->i!=idx })
-       current=changed;projects=projects.map{if(it.name==p.name)changed else it};saveProjects(projects)
-      })
-      "settings" -> SettingsScreen(accent,{accent=it;saveAccent(it)},updateText,{updateUrl?.let{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(it)))}},{screen="home"})
-      else -> HomeScreen(projects,{newDialog=true},{current=it;screen="editor"},{screen="settings"},{picker.launch(arrayOf("video/*","image/*","audio/*"))})
-     }
-     if(newDialog)NewProjectDialog({newDialog=false}){p->projects=listOf(p)+projects;saveProjects(projects);current=p;newDialog=false;screen="editor"}
+
+    private fun readClip(uri: Uri): MediaClip {
+        val mime = contentResolver.getType(uri) ?: "application/octet-stream"
+        val kind = when {
+            mime.startsWith("image/") -> "image"
+            mime.startsWith("audio/") -> "audio"
+            else -> "video"
+        }
+        val displayName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Untitled media"
+        val duration = if (kind == "image") 5_000L else runCatching {
+            MediaMetadataRetriever().use { retriever ->
+                retriever.setDataSource(this, uri)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            }
+        }.getOrDefault(0L)
+        return MediaClip(uri.toString(), displayName, mime, kind, duration)
     }
-   }
-  }
- }
- private fun loadProjects():List<Project> = runCatching{
-  val a=JSONArray(getSharedPreferences("blurrr",MODE_PRIVATE).getString("projects","[]"))
-  (0 until a.length()).map{i->val o=a.getJSONObject(i);val c=o.optJSONArray("clips")?:JSONArray();Project(o.getString("name"),o.optString("ratio","16:9"),o.optString("resolution","1080p"),o.optInt("fps",30),(0 until c.length()).map{c.getString(it)})}
- }.getOrDefault(emptyList())
- private fun saveProjects(list:List<Project>){val a=JSONArray();list.forEach{p->val c=JSONArray();p.clips.forEach{c.put(it)};a.put(JSONObject().put("name",p.name).put("ratio",p.ratio).put("resolution",p.resolution).put("fps",p.fps).put("clips",c))};getSharedPreferences("blurrr",MODE_PRIVATE).edit().putString("projects",a.toString()).apply()}
- private fun getAccent():Color{val v=getSharedPreferences("blurrr",MODE_PRIVATE).getLong("accent",0xFFD5FF35);return Color(v)}
- private fun saveAccent(c:Color){getSharedPreferences("blurrr",MODE_PRIVATE).edit().putLong("accent",c.value.toLong()).apply()}
- private suspend fun latestUpdate():String?=withContext(Dispatchers.IO){runCatching{
-  val c=URL("https://api.github.com/repos/BestWebBuilder123/MAZ/releases/latest").openConnection() as HttpURLConnection
-  c.connectTimeout=8000;c.readTimeout=8000
-  val j=JSONObject(c.inputStream.bufferedReader().use{it.readText()});c.disconnect()
-  val tag=j.optString("tag_name").removePrefix("v");val current=packageManager.getPackageInfo(packageName,0).versionName?:"1.0.0"
-  fun nums(s:String)=s.split(".").map{it.toIntOrNull()?:0}
-  val a=nums(tag);val b=nums(current)
-  val newer=(0..2).firstNotNullOfOrNull{i->val x=a.getOrElse(i){0};val y=b.getOrElse(i){0};if(x!=y)x>y else null}?:false
-  if(newer)j.optJSONArray("assets")?.let{assets->(0 until assets.length()).map{assets.getJSONObject(it)}.firstOrNull{it.optString("name")=="blurrr-android.apk"}?.optString("browser_download_url")}else null
- }.getOrNull()}
+
+    private fun loadProjects(): List<Project> = runCatching {
+        val array = JSONArray(getSharedPreferences("blurrr", MODE_PRIVATE).getString("projects", "[]"))
+        (0 until array.length()).map { i ->
+            val obj = array.getJSONObject(i)
+            val rawClips = obj.optJSONArray("clips") ?: JSONArray()
+            val clips = (0 until rawClips.length()).map { j ->
+                val raw = rawClips.get(j)
+                if (raw is JSONObject) {
+                    MediaClip(
+                        uri = raw.optString("uri"),
+                        name = raw.optString("name", "Media"),
+                        mimeType = raw.optString("mimeType", "application/octet-stream"),
+                        kind = raw.optString("kind", "video"),
+                        durationMs = raw.optLong("durationMs", 0L),
+                        trimStartMs = raw.optLong("trimStartMs", 0L),
+                        trimEndMs = raw.optLong("trimEndMs", 0L)
+                    )
+                } else {
+                    val legacyUri = raw.toString()
+                    val inferred = when {
+                        legacyUri.contains(".png", true) || legacyUri.contains(".jpg", true) || legacyUri.contains(".webp", true) -> "image"
+                        legacyUri.contains(".mp3", true) || legacyUri.contains(".m4a", true) || legacyUri.contains(".wav", true) -> "audio"
+                        else -> "video"
+                    }
+                    MediaClip(legacyUri, "Imported media", inferred + "/*", inferred)
+                }
+            }
+            Project(
+                name = obj.optString("name", "Untitled"),
+                ratio = obj.optString("ratio", "16:9"),
+                resolution = obj.optString("resolution", "1080p"),
+                fps = obj.optInt("fps", 30),
+                clips = clips,
+                id = obj.optString("id", UUID.randomUUID().toString())
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    private fun saveProjects(list: List<Project>) {
+        val array = JSONArray()
+        list.forEach { p ->
+            val clips = JSONArray()
+            p.clips.forEach { c ->
+                clips.put(
+                    JSONObject()
+                        .put("uri", c.uri)
+                        .put("name", c.name)
+                        .put("mimeType", c.mimeType)
+                        .put("kind", c.kind)
+                        .put("durationMs", c.durationMs)
+                        .put("trimStartMs", c.trimStartMs)
+                        .put("trimEndMs", c.trimEndMs)
+                )
+            }
+            array.put(
+                JSONObject()
+                    .put("id", p.id)
+                    .put("name", p.name)
+                    .put("ratio", p.ratio)
+                    .put("resolution", p.resolution)
+                    .put("fps", p.fps)
+                    .put("clips", clips)
+            )
+        }
+        getSharedPreferences("blurrr", MODE_PRIVATE).edit().putString("projects", array.toString()).apply()
+    }
+
+    private fun getAccent(): Color {
+        val value = getSharedPreferences("blurrr", MODE_PRIVATE).getLong("accent", 0xFFD5FF35)
+        return Color(value)
+    }
+
+    private fun saveAccent(color: Color) {
+        getSharedPreferences("blurrr", MODE_PRIVATE).edit().putLong("accent", color.value.toLong()).apply()
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun exportProject(project: Project, onStatus: (String) -> Unit) {
+        val visualClips = project.clips.filter { it.kind == "video" || it.kind == "image" }
+        val audioClips = project.clips.filter { it.kind == "audio" }
+        if (visualClips.isEmpty()) {
+            onStatus("Export failed: Add at least one video or photo first.")
+            return
+        }
+
+        val visualItems = visualClips.map { clip ->
+            val builder = MediaItem.Builder().setUri(Uri.parse(clip.uri))
+            if (clip.kind == "image") {
+                builder.setImageDurationMs(clip.durationMs.coerceAtLeast(1_000L))
+            } else if (clip.trimStartMs > 0L || clip.trimEndMs > 0L) {
+                val end = if (clip.trimEndMs > 0L) clip.trimEndMs else clip.durationMs
+                if (end > clip.trimStartMs) {
+                    builder.setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(clip.trimStartMs)
+                            .setEndPositionMs(end)
+                            .build()
+                    )
+                }
+            }
+            EditedMediaItem.Builder(builder.build()).build()
+        }
+
+        val visualSequence = EditedMediaItemSequence.withAudioAndVideoFrom(visualItems)
+        val composition = if (audioClips.isNotEmpty()) {
+            val audioItems = audioClips.map { clip ->
+                EditedMediaItem.Builder(MediaItem.fromUri(Uri.parse(clip.uri))).build()
+            }
+            val audioSequence = EditedMediaItemSequence.withAudioFrom(audioItems)
+                .buildUpon()
+                .setIsLooping(true)
+                .build()
+            Composition.Builder(visualSequence, audioSequence).build()
+        } else {
+            Composition.Builder(visualSequence).build()
+        }
+
+        val folder = getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: cacheDir
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val output = File(folder, "Blurrr_" + stamp + ".mp4")
+        val handler = Handler(Looper.getMainLooper())
+        val progressHolder = ProgressHolder()
+        var transformer: Transformer? = null
+        val progressRunnable = object : Runnable {
+            override fun run() {
+                val active = transformer ?: return
+                if (active.getProgress(progressHolder) == Transformer.PROGRESS_STATE_AVAILABLE) {
+                    onStatus("Exporting " + progressHolder.progress + "%")
+                }
+                handler.postDelayed(this, 500L)
+            }
+        }
+
+        try {
+            transformer = Transformer.Builder(this)
+                .setVideoMimeType(MimeTypes.VIDEO_H264)
+                .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        handler.removeCallbacks(progressRunnable)
+                        Thread {
+                            val result = runCatching { publishVideo(output) }
+                            handler.post {
+                                if (result.isSuccess) {
+                                    onStatus("Saved to Movies/Blurrr")
+                                } else {
+                                    onStatus("Export failed: " + (result.exceptionOrNull()?.message ?: "Could not save the video"))
+                                }
+                                output.delete()
+                            }
+                    }
+
+                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                        handler.removeCallbacks(progressRunnable)
+                        output.delete()
+                        onStatus("Export failed: " + (exportException.message ?: "Rendering error"))
+                    }
+                })
+                .build()
+            currentTransformer = transformer
+            transformer.start(composition, output.absolutePath)
+            handler.postDelayed(progressRunnable, 500L)
+        } catch (error: Exception) {
+            handler.removeCallbacks(progressRunnable)
+            output.delete()
+            onStatus("Export failed: " + (error.message ?: "Could not start renderer"))
+        }
+    }
+
+    private fun publishVideo(file: File): Uri {
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, file.name)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Blurrr")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+        val destination = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create a video in Movies")
+        try {
+            val stream = contentResolver.openOutputStream(destination)
+                ?: throw IllegalStateException("Could not open the exported video")
+            stream.use { output -> file.inputStream().use { input -> input.copyTo(output) } }
+            if (Build.VERSION.SDK_INT >= 29) {
+                contentResolver.update(destination, ContentValues().apply {
+                    put(MediaStore.Video.Media.IS_PENDING, 0)
+                }, null, null)
+            }
+            return destination
+        } catch (error: Exception) {
+            contentResolver.delete(destination, null, null)
+            throw error
+        }
+    }
+
+    private suspend fun latestUpdate(): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val connection = URL("https://api.github.com/repos/BestWebBuilder123/MAZ/releases/latest").openConnection() as HttpURLConnection
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 8_000
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            connection.disconnect()
+            val tag = json.optString("tag_name").removePrefix("v")
+            val installed = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
+            fun parts(version: String) = version.split(".").map { it.toIntOrNull() ?: 0 }
+            val latestParts = parts(tag)
+            val installedParts = parts(installed)
+            val newer = (0..2).firstNotNullOfOrNull { i ->
+                val latestNumber = latestParts.getOrElse(i) { 0 }
+                val installedNumber = installedParts.getOrElse(i) { 0 }
+                if (latestNumber != installedNumber) latestNumber > installedNumber else null
+            } ?: false
+            if (newer) {
+                json.optJSONArray("assets")?.let { assets ->
+                    (0 until assets.length()).map { assets.getJSONObject(it) }
+                        .firstOrNull { it.optString("name") == "blurrr-android.apk" }
+                        ?.optString("browser_download_url")
+                }
+            } else null
+        }.getOrNull()
+    }
+
+    override fun onDestroy() {
+        currentTransformer?.cancel()
+        currentTransformer = null
+        super.onDestroy()
+    }
 }
 
-@Composable private fun HomeScreen(projects:List<Project>,onNew:()->Unit,onOpen:(Project)->Unit,onSettings:()->Unit,onImport:()->Unit){
- Column(Modifier.fillMaxSize().padding(horizontal=16.dp)){
-  Row(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.AddBox,null,tint=Color.White);Text("Blurrr",fontSize=20.sp,fontWeight=FontWeight.Bold);Row(horizontalArrangement=Arrangement.spacedBy(16.dp)){Icon(Icons.Default.SportsEsports,null,tint=Color.White);Icon(Icons.Default.Diamond,null,tint=Color.Cyan)}}
-  Column(Modifier.fillMaxWidth().padding(horizontal=48.dp).clip(RoundedCornerShape(28.dp)).background(panel2).clickable{onNew()}.padding(22.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(Icons.Default.MovieCreation,null,tint=lime,modifier=Modifier.size(52.dp));Text("Start Creating",fontWeight=FontWeight.Bold);Text("New Project / Tools",fontSize=11.sp,color=muted)}
-  Spacer(Modifier.height(18.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly){MiniTool("FPS Changer",Icons.Default.FastForward);MiniTool("V-FPS changer",Icons.Default.Speed);MiniTool("Anime",Icons.Default.Hd)}
-  Spacer(Modifier.height(18.dp));Row(verticalAlignment=Alignment.CenterVertically){Text("Your project",fontWeight=FontWeight.Bold);Spacer(Modifier.width(16.dp));Text("Cloud project",color=muted);Spacer(Modifier.weight(1f));Button(onClick=onImport,colors=ButtonDefaults.buttonColors(containerColor=Color(0xFF55F58A),contentColor=Color.Black)){Icon(Icons.Default.Download,null);Text(" Import")}}
-  LazyColumn(Modifier.weight(1f)){itemsIndexed(projects){_,p->Row(Modifier.fillMaxWidth().clickable{onOpen(p)}.padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically){
-   Box(Modifier.size(76.dp).clip(RoundedCornerShape(16.dp)).background(panel2),contentAlignment=Alignment.Center){Icon(Icons.Default.Movie,null,tint=muted,modifier=Modifier.size(32.dp))}
-   Column(Modifier.weight(1f).padding(start=12.dp)){Text(p.name,fontWeight=FontWeight.Bold);Text(p.ratio+" • "+p.fps+" FPS",color=muted,fontSize=11.sp);Text(p.resolution+" • "+p.clips.size+" media",color=muted,fontSize=11.sp)}
-   Icon(Icons.Default.MoreHoriz,null,tint=muted)
-  }}}
-  Row(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalArrangement=Arrangement.SpaceAround){Nav("Playground",Icons.Default.VideoLibrary,false){};Nav("Creation",Icons.Default.AddBox,true,onNew);Nav("My",Icons.Default.AccountCircle,false,onSettings)}
- }
+@Composable
+private fun HomeScreen(
+    projects: List<Project>,
+    onNew: () -> Unit,
+    onOpen: (Project) -> Unit,
+    onSettings: () -> Unit,
+    onImport: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.AddBox, null, tint = Color.White)
+            Text("Blurrr", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Icon(Icons.Default.SportsEsports, null, tint = Color.White)
+                Icon(Icons.Default.Diamond, null, tint = Color.Cyan)
+            }
+        }
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 48.dp).clip(RoundedCornerShape(28.dp))
+                .background(panel2).clickable { onNew() }.padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(Icons.Default.MovieCreation, null, tint = lime, modifier = Modifier.size(52.dp))
+            Text("Start Creating", fontWeight = FontWeight.Bold)
+            Text("New Project / Tools", fontSize = 11.sp, color = muted)
+        }
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            MiniTool("FPS Changer", Icons.Default.FastForward)
+            MiniTool("V-FPS changer", Icons.Default.Speed)
+            MiniTool("Anime", Icons.Default.Hd)
+        }
+        Spacer(Modifier.height(18.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Your project", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(16.dp))
+            Text("Cloud project", color = muted)
+            Spacer(Modifier.weight(1f))
+            Button(
+                onClick = onImport,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF55F58A), contentColor = Color.Black)
+            ) {
+                Icon(Icons.Default.Download, null)
+                Text(" Import")
+            }
+        }
+        if (projects.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("Your projects will appear here", color = muted)
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f)) {
+                items(projects, key = { it.id }) { project ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpen(project) }.padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier.size(76.dp).clip(RoundedCornerShape(16.dp)).background(panel2),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Movie, null, tint = muted, modifier = Modifier.size(32.dp))
+                        }
+                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                            Text(project.name, fontWeight = FontWeight.Bold)
+                            Text(project.ratio + " • " + project.fps + " FPS", color = muted, fontSize = 11.sp)
+                            Text(project.resolution + " • " + project.clips.size + " media", color = muted, fontSize = 11.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null, tint = muted)
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceAround
+        ) {
+            Nav("Playground", Icons.Default.VideoLibrary, false) {}
+            Nav("Creation", Icons.Default.AddBox, true, onNew)
+            Nav("My", Icons.Default.AccountCircle, false, onSettings)
+        }
+    }
 }
-@Composable private fun MiniTool(t:String,i:androidx.compose.ui.graphics.vector.ImageVector){Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(i,null,tint=Color.LightGray);Text(t,fontSize=10.sp,color=muted)}}
-@Composable private fun Nav(t:String,i:androidx.compose.ui.graphics.vector.ImageVector,active:Boolean,click:()->Unit){Column(Modifier.clickable{click()}.padding(horizontal=12.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(i,null,tint=if(active)Color.White else muted);Text(t,fontSize=11.sp,color=if(active)Color.White else muted)}}
 
-@Composable private fun NewProjectDialog(close:()->Unit,create:(Project)->Unit){
- var name by remember{mutableStateOf("New Project")};var ratio by remember{mutableStateOf("16:9")};var res by remember{mutableStateOf("1080p")};var fps by remember{mutableIntStateOf(30)}
- AlertDialog(onDismissRequest=close,containerColor=panel,title={Text("New Project")},text={Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
-  OutlinedTextField(name,{name=it},label={Text("Project name")},singleLine=true);Text("Choose frame",fontSize=12.sp,color=muted)
-  Row(Modifier.horizontalScroll(rememberScrollState())){listOf("Customize","16:9","9:16","1:1","4:5").forEach{FilterChip(ratio==it,{ratio=it},{Text(it)})}}
-  Text("Resolution",fontSize=12.sp,color=muted);Row{listOf("480p","720p","1080p").forEach{FilterChip(res==it,{res=it},{Text(it)})}}
-  Text("Select frame rate",fontSize=12.sp,color=muted);Row{listOf(24,30,60).forEach{FilterChip(fps==it,{fps=it},{Text(it.toString()+"F")})}}
- }},confirmButton={Button(onClick={create(Project(name.ifBlank{"New Project"},ratio,res,fps))},colors=ButtonDefaults.buttonColors(containerColor=lime,contentColor=Color.Black)){Text("+ New Project")}},dismissButton={TextButton(onClick=close){Text("Cancel")}})
+@Composable
+private fun MiniTool(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = Color.LightGray)
+        Text(title, fontSize = 10.sp, color = muted)
+    }
 }
 
-@Composable private fun EditorScreen(project:Project,back:()->Unit,import:()->Unit,remove:(Int)->Unit){
- var selected by remember{mutableIntStateOf(0)}
- var playing by remember{mutableStateOf(false)}
- val active=project.clips.getOrNull(selected)
- val isVideo=active?.let{it.contains("video",true)||it.endsWith(".mp4",true)||it.endsWith(".mov",true)||it.endsWith(".mkv",true)}?:false
- Column(Modifier.fillMaxSize()){
-  Row(Modifier.fillMaxWidth().padding(14.dp),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.Close,null,Modifier.clickable{back()},tint=Color.White);Text(project.resolution+" • "+project.fps+" FPS",color=Color.White);Text("Export",color=muted)}
-  Box(Modifier.fillMaxWidth().weight(0.48f).padding(horizontal=12.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xFF080808)),contentAlignment=Alignment.Center){
-   if(active==null)Column(horizontalAlignment=Alignment.CenterHorizontally){Icon(Icons.Default.Movie,null,tint=Color.Gray,modifier=Modifier.size(40.dp));Text("No Display",color=Color.Gray);Text("Tap Video/Photo to import media",fontSize=11.sp,color=muted)}
-   else if(isVideo)AndroidView(factory={ctx->VideoView(ctx).apply{setVideoURI(Uri.parse(active));setOnPreparedListener{it.isLooping=true;if(playing)start()}}},update={it.setVideoURI(Uri.parse(active));if(playing)it.start()else it.pause()},modifier=Modifier.fillMaxSize())
-   else AndroidView(factory={ctx->ImageView(ctx).apply{scaleType=ImageView.ScaleType.FIT_CENTER;setImageURI(Uri.parse(active))}},update={it.setImageURI(Uri.parse(active))},modifier=Modifier.fillMaxSize())
-  }
-  Row(Modifier.fillMaxWidth().padding(12.dp),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically){
-   Icon(Icons.Default.Undo,null,tint=muted);Icon(Icons.Default.Redo,null,tint=muted);Text("½",color=Color.White)
-   Icon(Icons.Default.SkipPrevious,null,tint=muted,modifier=Modifier.clickable{selected=(selected-1).coerceAtLeast(0);playing=false})
-   Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,null,tint=Color.White,modifier=Modifier.clickable{playing=!playing})
-   Icon(Icons.Default.SkipNext,null,tint=muted,modifier=Modifier.clickable{selected=(selected+1).coerceAtMost((project.clips.size-1).coerceAtLeast(0));playing=false})
-  }
-  Column(Modifier.fillMaxWidth().weight(0.36f).background(Color(0xFF171619))){
-   Text("00:00:00",Modifier.align(Alignment.CenterHorizontally).padding(8.dp),color=Color.White)
-   Row(Modifier.fillMaxWidth().weight(1f)){Box(Modifier.fillMaxHeight().width(2.dp).background(Color.White));Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=8.dp)){
-    Text("▣  Materials",color=Color.White,fontSize=12.sp,modifier=Modifier.fillMaxWidth().background(panel).padding(10.dp))
-    project.clips.forEachIndexed{i,uri->Row(Modifier.fillMaxWidth().padding(top=5.dp).clip(RoundedCornerShape(6.dp)).background(if(i==selected)Color(0xFF55515A)else panel).clickable{selected=i;playing=false}.padding(9.dp),verticalAlignment=Alignment.CenterVertically){Icon(if(uri.contains("video",true))Icons.Default.Movie else Icons.Default.Image,null,tint=lime);Text("  Clip "+(i+1),Modifier.weight(1f),color=Color.White,fontSize=12.sp);Icon(Icons.Default.Close,null,tint=muted,modifier=Modifier.clickable{remove(i)})}}
-    Text("♫  Add music",color=muted,fontSize=12.sp,modifier=Modifier.fillMaxWidth().padding(top=6.dp).background(panel).clickable{import()}.padding(10.dp))
-   }}
-  }
-  Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(panel).padding(7.dp),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-   listOf("Video/Photo","Music","Fx","Text","Shapes","3D").forEach{t->Column(Modifier.width(76.dp).clip(RoundedCornerShape(14.dp)).background(if(t=="Video/Photo")panel2 else panel).clickable{if(t=="Video/Photo"||t=="Music")import()}.padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally){
-    Icon(when(t){"Music"->Icons.Default.MusicNote;"Fx"->Icons.Default.AutoAwesome;"Text"->Icons.Default.TextFields;"Shapes"->Icons.Default.Category;"3D"->Icons.Default.ViewInAr;else->Icons.Default.VideoLibrary},null,tint=Color.White);Text(t,fontSize=11.sp,color=muted)
-   }}
-  }
- }
+@Composable
+private fun Nav(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, click: () -> Unit) {
+    Column(Modifier.clickable { click() }.padding(horizontal = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = if (active) Color.White else muted)
+        Text(title, fontSize = 11.sp, color = if (active) Color.White else muted)
+    }
 }
 
-@Composable private fun SettingsScreen(accent:Color,setAccent:(Color)->Unit,update:String,download:()->Unit,back:()->Unit){
- Column(Modifier.fillMaxSize().padding(20.dp)){Row(verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.ArrowBack,null,Modifier.clickable{back()}.padding(end=12.dp));Text("My",fontSize=22.sp,fontWeight=FontWeight.Bold)}
- Spacer(Modifier.height(28.dp));Text("App theme",fontWeight=FontWeight.Bold);Spacer(Modifier.height(12.dp))
- Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){listOf(lime,Color(0xFF7B8CFF),Color(0xFFFF79B8),Color(0xFF57D8C3),Color.White).forEach{Box(Modifier.size(38.dp).clip(RoundedCornerShape(50)).background(it).clickable{setAccent(it)})}}
- Spacer(Modifier.height(28.dp));Text("App updates",fontWeight=FontWeight.Bold);Text(update,color=muted);Button(onClick=download){Text("Open update download")}
- }
+@Composable
+private fun NewProjectDialog(close: () -> Unit, create: (Project) -> Unit) {
+    var name by remember { mutableStateOf("New Project") }
+    var ratio by remember { mutableStateOf("16:9") }
+    var resolution by remember { mutableStateOf("1080p") }
+    var fps by remember { mutableIntStateOf(30) }
+    AlertDialog(
+        onDismissRequest = close,
+        containerColor = panel,
+        title = { Text("New Project") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Project name") }, singleLine = true)
+                Text("Choose frame", fontSize = 12.sp, color = muted)
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    listOf("16:9", "9:16", "1:1", "4:5").forEach {
+                        FilterChip(selected = ratio == it, onClick = { ratio = it }, label = { Text(it) })
+                    }
+                }
+                Text("Resolution", fontSize = 12.sp, color = muted)
+                Row {
+                    listOf("480p", "720p", "1080p").forEach {
+                        FilterChip(selected = resolution == it, onClick = { resolution = it }, label = { Text(it) })
+                    }
+                }
+                Text("Select frame rate", fontSize = 12.sp, color = muted)
+                Row {
+                    listOf(24, 30, 60).forEach {
+                        FilterChip(selected = fps == it, onClick = { fps = it }, label = { Text(it.toString() + " FPS") })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { create(Project(name.ifBlank { "New Project" }, ratio, resolution, fps)) },
+                colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
+            ) { Text("+ New Project") }
+        },
+        dismissButton = { TextButton(onClick = close) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun EditorScreen(
+    project: Project,
+    exporting: Boolean,
+    exportStatus: String,
+    back: () -> Unit,
+    import: (String) -> Unit,
+    remove: (Int) -> Unit,
+    updateClip: (Int, MediaClip) -> Unit,
+    moveClip: (Int, Int) -> Unit,
+    onExport: () -> Unit
+) {
+    var selected by remember(project.id) { mutableIntStateOf(0) }
+    var playing by remember { mutableStateOf(false) }
+    val active = project.clips.getOrNull(selected)
+    val duration = active?.durationMs ?: 0L
+    val endValue = active?.let { if (it.trimEndMs > 0L) it.trimEndMs else it.durationMs } ?: 0L
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Close, null, Modifier.clickable { back() }, tint = Color.White)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(project.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                Text(project.resolution + " • " + project.fps + " FPS", color = muted, fontSize = 10.sp)
+            }
+            Button(
+                onClick = onExport,
+                enabled = !exporting && project.clips.any { it.kind == "video" || it.kind == "image" },
+                colors = ButtonDefaults.buttonColors(containerColor = lime, contentColor = Color.Black)
+            ) {
+                if (exporting) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Default.FileUpload, null)
+                Text(if (exporting) " Exporting" else " Export")
+            }
+        }
+
+        Box(
+            Modifier.fillMaxWidth().weight(0.42f).padding(horizontal = 12.dp)
+                .clip(RoundedCornerShape(8.dp)).background(Color(0xFF080808)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (active == null) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Movie, null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                    Text("No Display", color = Color.Gray)
+                    Text("Import a video or photo to begin", fontSize = 11.sp, color = muted)
+                }
+            } else if (active.kind == "video") {
+                key(active.uri) {
+                    AndroidView(
+                        factory = { context ->
+                            VideoView(context).apply {
+                                tag = active.uri
+                                setVideoURI(Uri.parse(active.uri))
+                                setOnPreparedListener { player ->
+                                    player.isLooping = false
+                                    if (playing) start()
+                                }
+                            }
+                        },
+                        update = { view ->
+                            if (view.tag != active.uri) {
+                                view.tag = active.uri
+                                view.setVideoURI(Uri.parse(active.uri))
+                            }
+                            if (playing) view.start() else view.pause()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else if (active.kind == "image") {
+                AndroidView(
+                    factory = { context ->
+                        ImageView(context).apply {
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            setImageURI(Uri.parse(active.uri))
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.MusicNote, null, tint = lime, modifier = Modifier.size(46.dp))
+                    Text(active.name, color = Color.White)
+                    Text("Audio track", color = muted, fontSize = 11.sp)
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Undo, null, tint = muted)
+            Icon(Icons.Default.Redo, null, tint = muted)
+            Icon(
+                Icons.Default.SkipPrevious, null, tint = Color.White,
+                modifier = Modifier.clickable { selected = (selected - 1).coerceAtLeast(0); playing = false }
+            )
+            Icon(
+                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                null,
+                tint = Color.White,
+                modifier = Modifier.size(30.dp).clickable { playing = !playing }
+            )
+            Icon(
+                Icons.Default.SkipNext, null, tint = Color.White,
+                modifier = Modifier.clickable { selected = (selected + 1).coerceAtMost((project.clips.size - 1).coerceAtLeast(0)); playing = false }
+            )
+        }
+
+        Column(Modifier.fillMaxWidth().weight(0.40f).background(Color(0xFF171619))) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("TIMELINE", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(exportStatus, color = if (exporting) lime else muted, fontSize = 10.sp, maxLines = 1)
+            }
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                Column(
+                    Modifier.width(86.dp).fillMaxHeight().background(Color(0xFF202023)).padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("VIDEO", color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Text("AUDIO", color = muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+                LazyColumn(Modifier.weight(1f).fillMaxHeight().padding(horizontal = 6.dp)) {
+                    itemsIndexed(project.clips, key = { index, clip -> clip.uri + "_" + index }) { index, clip ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(if (index == selected) Color(0xFF514D55) else panel)
+                                .clickable { selected = index; playing = false }
+                                .padding(horizontal = 8.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                when (clip.kind) {
+                                    "audio" -> Icons.Default.MusicNote
+                                    "image" -> Icons.Default.Image
+                                    else -> Icons.Default.Movie
+                                },
+                                null,
+                                tint = lime,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Column(Modifier.weight(1f).padding(horizontal = 7.dp)) {
+                                Text(clip.name, color = Color.White, fontSize = 11.sp, maxLines = 1)
+                                Text(formatDuration(clip.durationMs), color = muted, fontSize = 9.sp)
+                            }
+                            Icon(
+                                Icons.Default.KeyboardArrowUp, null, tint = muted,
+                                modifier = Modifier.clickable { moveClip(index, -1) }.size(20.dp)
+                            )
+                            Icon(
+                                Icons.Default.KeyboardArrowDown, null, tint = muted,
+                                modifier = Modifier.clickable { moveClip(index, 1) }.size(20.dp)
+                            )
+                            Icon(
+                                Icons.Default.Close, null, tint = muted,
+                                modifier = Modifier.clickable { remove(index); selected = (selected - 1).coerceAtLeast(0) }.size(19.dp)
+                            )
+                        }
+                    }
+                    if (project.clips.isEmpty()) {
+                        item { Text("Add video, photo, or music below", color = muted, fontSize = 11.sp, modifier = Modifier.padding(14.dp)) }
+                    }
+                }
+            }
+            if (active != null && active.kind != "audio" && duration > 0L) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)) {
+                    Text("Trim start  " + formatDuration(active.trimStartMs), color = muted, fontSize = 10.sp)
+                    Slider(
+                        value = active.trimStartMs.coerceIn(0L, (duration - 250L).coerceAtLeast(0L)).toFloat(),
+                        onValueChange = { value ->
+                            val start = value.toLong()
+                            val end = if (active.trimEndMs > start) active.trimEndMs else duration
+                            updateClip(selected, active.copy(trimStartMs = start, trimEndMs = end))
+                        },
+                        valueRange = 0f..(duration - 250L).coerceAtLeast(0L).toFloat()
+                    )
+                    Text("Trim end  " + formatDuration(endValue), color = muted, fontSize = 10.sp)
+                    Slider(
+                        value = endValue.coerceIn((active.trimStartMs + 250L).coerceAtMost(duration), duration).toFloat(),
+                        onValueChange = { value ->
+                            updateClip(selected, active.copy(trimEndMs = value.toLong()))
+                        },
+                        valueRange = (active.trimStartMs + 250L).coerceAtMost(duration).toFloat()..duration.toFloat()
+                    )
+                }
+            }
+        }
+
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(panel).padding(7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf("Video/Photo", "Music", "Fx", "Text", "Shapes", "3D").forEach { tool ->
+                Column(
+                    Modifier.width(76.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (tool == "Video/Photo") panel2 else panel)
+                        .clickable {
+                            when (tool) {
+                                "Video/Photo" -> import("visual")
+                                "Music" -> import("audio")
+                                "Fx", "Text", "Shapes", "3D" -> import("visual")
+                            }
+                        }
+                        .padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        when (tool) {
+                            "Music" -> Icons.Default.MusicNote
+                            "Fx" -> Icons.Default.AutoAwesome
+                            "Text" -> Icons.Default.TextFields
+                            "Shapes" -> Icons.Default.Category
+                            "3D" -> Icons.Default.ViewInAr
+                            else -> Icons.Default.VideoLibrary
+                        },
+                        null,
+                        tint = Color.White
+                    )
+                    Text(tool, fontSize = 11.sp, color = muted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    accent: Color,
+    setAccent: (Color) -> Unit,
+    update: String,
+    download: () -> Unit,
+    back: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.ArrowBack, null, Modifier.clickable { back() }.padding(end = 12.dp))
+            Text("My", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(28.dp))
+        Text("App theme", fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf(lime, Color(0xFF7B8CFF), Color(0xFFFF79B8), Color(0xFF57D8C3), Color.White).forEach { color ->
+                Box(
+                    Modifier.size(38.dp).clip(RoundedCornerShape(50)).background(color)
+                        .border(if (accent == color) 2.dp else 0.dp, Color.White, RoundedCornerShape(50))
+                        .clickable { setAccent(color) }
+                )
+            }
+        }
+        Spacer(Modifier.height(28.dp))
+        Text("App updates", fontWeight = FontWeight.Bold)
+        Text(update, color = muted)
+        Button(onClick = download, enabled = update.contains("available", true)) { Text("Open update download") }
+    }
+}
+
+private fun formatDuration(durationMs: Long): String {
+    if (durationMs <= 0L) return "--:--"
+    val totalSeconds = durationMs / 1000L
+    return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L)
 }
