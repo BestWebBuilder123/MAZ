@@ -51,6 +51,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.HslAdjustment
 import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.Presentation
 import androidx.media3.effect.StaticOverlaySettings
 import androidx.media3.effect.TextOverlay
 import androidx.media3.transformer.Composition
@@ -491,6 +492,29 @@ class MainActivity : ComponentActivity() {
                 TextOverlay.createStaticTextOverlay(styledText, overlaySettings)
             }
         val videoEffects = mutableListOf<androidx.media3.common.Effect>()
+        val longSide = when (project.resolution) {
+            "480p" -> 854
+            "720p" -> 1280
+            else -> 1920
+        }
+        val shortSide = when (project.resolution) {
+            "480p" -> 480
+            "720p" -> 720
+            else -> 1080
+        }
+        val (outputWidth, outputHeight) = when (project.ratio) {
+            "9:16" -> shortSide to longSide
+            "1:1" -> longSide to longSide
+            "4:5" -> shortSide to (shortSide * 5 / 4)
+            else -> longSide to shortSide
+        }
+        videoEffects.add(
+            Presentation.createForWidthAndHeight(
+                outputWidth,
+                outputHeight,
+                Presentation.LAYOUT_SCALE_TO_FIT
+            )
+        )
         if (project.hueAdjustment != 0f || project.saturationAdjustment != 0f || project.lightnessAdjustment != 0f) {
             videoEffects.add(
                 HslAdjustment.Builder()
