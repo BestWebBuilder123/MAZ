@@ -47,6 +47,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.key
 import androidx.media3.common.MediaItem
+import androidx.media3.common.audio.DefaultGainProvider
+import androidx.media3.common.audio.GainProcessor
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.HslAdjustment
@@ -88,7 +90,8 @@ data class MediaClip(
     val kind: String,
     val durationMs: Long = 0L,
     val trimStartMs: Long = 0L,
-    val trimEndMs: Long = 0L
+    val trimEndMs: Long = 0L,
+    val volume: Float = 1f
 )
 
 data class TextLayer(
@@ -310,7 +313,8 @@ class MainActivity : ComponentActivity() {
                         kind = raw.optString("kind", "video"),
                         durationMs = raw.optLong("durationMs", 0L),
                         trimStartMs = raw.optLong("trimStartMs", 0L),
-                        trimEndMs = raw.optLong("trimEndMs", 0L)
+                        trimEndMs = raw.optLong("trimEndMs", 0L),
+                        volume = raw.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f)
                     )
                 } else {
                     val legacyUri = raw.toString()
@@ -363,6 +367,7 @@ class MainActivity : ComponentActivity() {
                         .put("durationMs", c.durationMs)
                         .put("trimStartMs", c.trimStartMs)
                         .put("trimEndMs", c.trimEndMs)
+                        .put("volume", c.volume.toDouble())
                 )
             }
             val textLayers = JSONArray()
@@ -429,6 +434,12 @@ class MainActivity : ComponentActivity() {
             }
             EditedMediaItem.Builder(builder.build())
                 .setFrameRate(project.fps.coerceIn(1, 120))
+                .setEffects(
+                    Effects(
+                        listOf(GainProcessor(DefaultGainProvider.Builder(clip.volume.coerceIn(0f, 1f)).build())),
+                        emptyList()
+                    )
+                )
                 .build()
         }
 
@@ -447,7 +458,14 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
-                EditedMediaItem.Builder(builder.build()).build()
+                EditedMediaItem.Builder(builder.build())
+                    .setEffects(
+                        Effects(
+                            listOf(GainProcessor(DefaultGainProvider.Builder(clip.volume.coerceIn(0f, 1f)).build())),
+                            emptyList()
+                        )
+                    )
+                    .build()
             }
             val audioSequence = EditedMediaItemSequence.withAudioFrom(audioItems)
                 .buildUpon()
@@ -1087,6 +1105,16 @@ private fun EditorScreen(
                             )
                         }
                     }
+                }
+            }
+            if (active != null && active.kind != "image") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)) {
+                    Text("Volume  " + (active.volume * 100f).toInt() + "%", color = muted, fontSize = 10.sp)
+                    Slider(
+                        value = active.volume,
+                        onValueChange = { value -> updateClip(selected, active.copy(volume = value.coerceIn(0f, 1f))) },
+                        valueRange = 0f..1f
+                    )
                 }
             }
             if (active != null && duration > 0L) {
