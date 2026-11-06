@@ -65,6 +65,7 @@ class MainActivity : ComponentActivity() {
 
 private data class PersonalTool(val name: String, val url: String)
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun MazApp(openExternal: (String) -> Unit) {
     var tab by remember { mutableStateOf("Tools") }
@@ -174,6 +175,7 @@ private fun MazApp(openExternal: (String) -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ToolCard(
     name: String, description: String, hint: String, icon: String, onOpen: () -> Unit
@@ -264,6 +266,7 @@ private fun CustomToolScreen(tool: PersonalTool?, onBack: () -> Unit, openExtern
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TikTubeScreen(onBack: () -> Unit, openExternal: (String) -> Unit) {
     var platform by remember { mutableStateOf("YouTube") }
