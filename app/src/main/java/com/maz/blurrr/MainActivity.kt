@@ -177,7 +177,7 @@ private fun ToolCard(
 }
 
 @Composable
-private fun EmptySection(title: String, subtitle: String) {
+private fun ColumnScope.EmptySection(title: String, subtitle: String) {
     Column(
         Modifier.fillMaxWidth().weight(1f),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -244,7 +244,7 @@ private fun TikTubeScreen(onBack: () -> Unit, openExternal: (String) -> Unit) {
                       <iframe id="maziFrame" title="IxxlSave"></iframe>
                       <script>
                         const frame = document.getElementById("maziFrame");
-                        frame.srcdoc = \${JSONObject.quote(originalHtml)};
+                        frame.srcdoc = ${JSONObject.quote(originalHtml)};
                         frame.addEventListener("load", () => {
                           try {
                             frame.contentDocument.addEventListener("click", event => {
