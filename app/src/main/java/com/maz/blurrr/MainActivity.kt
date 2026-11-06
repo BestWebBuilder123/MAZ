@@ -634,9 +634,9 @@ class MainActivity : ComponentActivity() {
         if (project.hueAdjustment != 0f || project.saturationAdjustment != 0f || project.lightnessAdjustment != 0f) {
             videoEffects.add(
                 HslAdjustment.Builder()
-                    .adjustHue((project.hueAdjustment + (active?.hueAdjustment ?: 0f)).coerceIn(-180f, 180f))
-                    .adjustSaturation((project.saturationAdjustment + (active?.saturationAdjustment ?: 0f)).coerceIn(-100f, 100f))
-                    .adjustLightness((project.lightnessAdjustment + (active?.lightnessAdjustment ?: 0f)).coerceIn(-100f, 100f))
+                    .adjustHue(project.hueAdjustment.coerceIn(-180f, 180f))
+                    .adjustSaturation(project.saturationAdjustment.coerceIn(-100f, 100f))
+                    .adjustLightness(project.lightnessAdjustment.coerceIn(-100f, 100f))
                     .build()
             )
         }
