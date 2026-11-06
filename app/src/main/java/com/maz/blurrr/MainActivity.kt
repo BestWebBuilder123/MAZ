@@ -381,6 +381,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 output.delete()
                             }
+                        }
                     }
 
                     override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
