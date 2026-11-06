@@ -2,6 +2,7 @@ package com.maz.blurrr
 
 import android.content.ContentValues
 import android.content.Intent
+import android.provider.Settings
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +18,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,6 +51,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -97,6 +101,7 @@ class MainActivity : ComponentActivity() {
             var accent by remember { mutableStateOf(getAccent()) }
             var updateText by remember { mutableStateOf("Checking GitHub…") }
             var updateUrl by remember { mutableStateOf<String?>(null) }
+            var isDownloadingUpdate by remember { mutableStateOf(false) }
             var exporting by remember { mutableStateOf(false) }
             var exportStatus by remember { mutableStateOf("Ready to export") }
 
@@ -183,7 +188,19 @@ class MainActivity : ComponentActivity() {
                             accent = accent,
                             setAccent = { accent = it; saveAccent(it) },
                             update = updateText,
-                            download = { updateUrl?.let { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) } },
+                            updateAvailable = updateUrl != null,
+                            downloading = isDownloadingUpdate,
+                            download = {
+                                val asset = updateUrl
+                                if (asset != null && !isDownloadingUpdate) {
+                                    isDownloadingUpdate = true
+                                    updateText = "Downloading update…"
+                                    downloadAndInstallUpdate(asset) { status ->
+                                        updateText = status
+                                        isDownloadingUpdate = false
+                                    }
+                                }
+                            },
                             back = { screen = "home" }
                         )
                         else -> HomeScreen(
@@ -425,6 +442,84 @@ class MainActivity : ComponentActivity() {
         } catch (error: Exception) {
             contentResolver.delete(destination, null, null)
             throw error
+        }
+    }
+
+    private fun downloadAndInstallUpdate(assetUrl: String, onStatus: (String) -> Unit) {
+        lifecycleScope.launch {
+            try {
+                val apkFile = withContext(Dispatchers.IO) {
+                    val updatesDir = File(cacheDir, "updates").apply { mkdirs() }
+                    val destination = File(updatesDir, "blurrr-update.apk")
+                    val connection = (URL(assetUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20_000
+                        readTimeout = 60_000
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "Blurrr-Android-Updater")
+                        setRequestProperty("Accept", "application/octet-stream")
+                    }
+                    try {
+                        val code = connection.responseCode
+                        if (code !in 200..299) {
+                            throw IllegalStateException("GitHub download returned HTTP $code")
+                        }
+                        connection.inputStream.use { input ->
+                            destination.outputStream().buffered().use { output -> input.copyTo(output) }
+                        }
+                    } finally {
+                        connection.disconnect()
+                    }
+                    if (!destination.exists() || destination.length() < 1024L) {
+                        destination.delete()
+                        throw IllegalStateException("The downloaded APK is empty or incomplete")
+                    }
+                    destination
+                }
+                getSharedPreferences("blurrr", MODE_PRIVATE).edit()
+                    .putString("pending_update_apk", apkFile.absolutePath)
+                    .apply()
+                withContext(Dispatchers.Main) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                        onStatus("Allow installs from Blurrr, then return to install the update.")
+                        startActivity(
+                            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                        )
+                    } else {
+                        onStatus("Downloaded. Waiting for Android's install confirmation…")
+                        launchApkInstaller(apkFile)
+                    }
+                }
+            } catch (error: Exception) {
+                withContext(Dispatchers.Main) {
+                    onStatus("Update download failed: " + (error.message ?: "Unknown error"))
+                }
+            }
+        }
+    }
+
+    private fun launchApkInstaller(apkFile: File) {
+        if (!apkFile.exists() || apkFile.length() < 1024L) {
+            getSharedPreferences("blurrr", MODE_PRIVATE).edit().remove("pending_update_apk").apply()
+            return
+        }
+        val apkUri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
+        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(apkUri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(installIntent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val preferences = getSharedPreferences("blurrr", MODE_PRIVATE)
+        val pendingPath = preferences.getString("pending_update_apk", null) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) return
+        preferences.edit().remove("pending_update_apk").apply()
+        val apkFile = File(pendingPath)
+        if (apkFile.exists()) {
+            runCatching { launchApkInstaller(apkFile) }
         }
     }
 
@@ -851,6 +946,8 @@ private fun SettingsScreen(
     accent: Color,
     setAccent: (Color) -> Unit,
     update: String,
+    updateAvailable: Boolean,
+    downloading: Boolean,
     download: () -> Unit,
     back: () -> Unit
 ) {
@@ -874,7 +971,7 @@ private fun SettingsScreen(
         Spacer(Modifier.height(28.dp))
         Text("App updates", fontWeight = FontWeight.Bold)
         Text(update, color = muted)
-        Button(onClick = download, enabled = update.contains("available", true)) { Text("Open update download") }
+        Button(onClick = download, enabled = updateAvailable && !downloading) { Text(if (downloading) "Downloading…" else "Download & install update") }
     }
 }
 
