@@ -292,7 +292,7 @@ private fun TikTubeCard(
         }
         if (!installed) {
             Spacer(Modifier.height(9.dp))
-            Text("Free · Installs inside MAZ · Available offline after install", color = Muted,
+            Text("Free · Stored inside MAZ · Open anytime", color = Muted,
                 fontSize = 10.sp, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
