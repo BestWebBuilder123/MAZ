@@ -273,7 +273,14 @@ class MainActivity : ComponentActivity() {
                             onNew = { newDialog = true },
                             onOpen = { current = it; screen = "editor" },
                             onSettings = { screen = "settings" },
-                            onImport = { launchPicker("all") },
+                            onImport = {
+                                val importedProject = Project("Imported Project", "16:9", "1080p", 30)
+                                projects = listOf(importedProject) + projects
+                                saveProjects(projects)
+                                current = importedProject
+                                screen = "editor"
+                                launchPicker("all")
+                            },
                             onRename = { project, name ->
                                 projects = projects.map { if (it.id == project.id) it.copy(name = name) else it }
                                 saveProjects(projects)
