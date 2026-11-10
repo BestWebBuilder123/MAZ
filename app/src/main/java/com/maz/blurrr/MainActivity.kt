@@ -81,16 +81,21 @@ private fun MazApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val toolFile = remember { File(context.filesDir, "tools/tiktube/ixxlSave.html") }
+    val particleFile = remember { File(context.filesDir, "tools/particle-lab/particle_lab.html") }
     var selectedTab by remember { mutableStateOf("Tools") }
     var toolInstalled by remember { mutableStateOf(toolFile.exists() && toolFile.length() > 0L) }
+    var particleInstalled by remember { mutableStateOf(particleFile.exists() && particleFile.length() > 0L) }
     var installing by remember { mutableStateOf(false) }
     var installError by remember { mutableStateOf<String?>(null) }
-    var activeTool by remember { mutableStateOf(false) }
+    var activeTool by remember { mutableStateOf<String?>(null) }
 
-    if (activeTool) {
-        TikTubeScreen(
-            htmlFile = toolFile,
-            onBack = { activeTool = false },
+    if (activeTool != null) {
+        val particle = activeTool == "Particle Lab"
+        ToolScreen(
+            htmlFile = if (particle) particleFile else toolFile,
+            title = if (particle) "Particle Lab" else "TikTube",
+            subtitle = if (particle) "Particle creation studio" else "YouTube & TikTok",
+            onBack = { activeTool = null },
             context = context
         )
         return
@@ -169,14 +174,14 @@ private fun MazApp() {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("TOOLS", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
-                            Text("1 TOOL", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
+                            Text("2 TOOLS", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
                         }
                         TikTubeCard(
                             installed = toolInstalled,
                             installing = installing,
                             onAction = {
                                 if (toolInstalled) {
-                                    activeTool = true
+                                    activeTool = "TikTube"
                                 } else if (!installing) {
                                     installing = true
                                     installError = null
@@ -202,12 +207,40 @@ private fun MazApp() {
                         if (installError != null) {
                             Text(installError!!, color = Color(0xFFFF8585), fontSize = 12.sp)
                         }
+                        ParticleLabCard(
+                            installed = particleInstalled,
+                            onAction = {
+                                if (particleInstalled) {
+                                    activeTool = "Particle Lab"
+                                } else {
+                                    scope.launch {
+                                        val result = runCatching {
+                                            withContext(Dispatchers.IO) {
+                                                particleFile.parentFile?.mkdirs()
+                                                context.assets.open("particle_lab.html").use { input ->
+                                                    particleFile.outputStream().use { output -> input.copyTo(output) }
+                                                }
+                                            }
+                                        }
+                                        if (result.isSuccess && particleFile.exists() && particleFile.length() > 0L) {
+                                            particleInstalled = true
+                                        } else {
+                                            installError = result.exceptionOrNull()?.message ?: "Couldn't install Particle Lab."
+                                        }
+                                    }
+                                }
+                            }
+                        )
                     }
-                    "Apps" -> EmptyState(
-                        symbol = "▦",
-                        title = "Your apps will live here",
-                        detail = "Installed MAZ apps will show up in this space."
-                    )
+                    "Apps" -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("APP LIBRARY", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
+                            Text("2 APPS", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
+                        }
+                        AppListingCard(name = "Aurea", description = "Android app · APK download", fileSize = "122.6 MB")
+                        AppListingCard(name = "GoldMotion", description = "Android app · APK download", fileSize = "200.9 MB")
+                        Text("Downloads are being connected to MAZ hosting. The apps will become downloadable here once the file links are ready.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                    }
                     else -> EmptyState(
                         symbol = "◎",
                         title = "Your socials, together",
@@ -298,6 +331,77 @@ private fun TikTubeCard(
     }
 }
 
+
+@Composable
+private fun ParticleLabCard(installed: Boolean, onAction: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(23.dp))
+            .background(SurfaceOne).border(1.dp, Stroke, RoundedCornerShape(23.dp))
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(54.dp).clip(RoundedCornerShape(17.dp)).background(Color(0xFF28202A)), contentAlignment = Alignment.Center) {
+                Text("✳", color = Color(0xFFFF718B), fontSize = 29.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(13.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Particle Lab", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Particle creation studio", color = Muted, fontSize = 12.sp)
+            }
+            Surface(color = if (installed) Color(0xFF17352D) else Color(0xFF29202A), shape = RoundedCornerShape(30.dp)) {
+                Text(if (installed) "INSTALLED" else "READY TO INSTALL",
+                    color = if (installed) Green else Color(0xFFFF9A9F), fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+            }
+        }
+        Spacer(Modifier.height(15.dp))
+        Text("Create particle effects, customize emitters and colors, and export your animation as a WebM video.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onAction, modifier = Modifier.fillMaxWidth().height(49.dp), shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Red)) {
+            Text(if (installed) "Open Particle Lab  →" else "↓  Install Particle Lab", fontWeight = FontWeight.Bold)
+        }
+        if (!installed) {
+            Spacer(Modifier.height(8.dp))
+            Text("Free · Stored inside MAZ · Open anytime", color = Muted, fontSize = 10.sp,
+                modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+private fun AppListingCard(name: String, description: String, fileSize: String) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(SurfaceOne)
+            .border(1.dp, Stroke, RoundedCornerShape(22.dp)).padding(17.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(50.dp).clip(RoundedCornerShape(15.dp)).background(SurfaceTwo), contentAlignment = Alignment.Center) {
+                Text(name.take(1), color = White, fontSize = 23.sp, fontWeight = FontWeight.Black)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(name, color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text(description, color = Muted, fontSize = 11.sp)
+            }
+            Surface(color = Color(0xFF29202A), shape = RoundedCornerShape(30.dp)) {
+                Text("APK", color = Color(0xFFFF9A9F), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+            }
+        }
+        Spacer(Modifier.height(13.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(fileSize, color = Muted, fontSize = 10.sp)
+            Text("HOSTING SETUP", color = Color(0xFFFFB86B), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp)
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().height(46.dp),
+            shape = RoundedCornerShape(13.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Stroke)) {
+            Text("Download link being prepared", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
 @Composable
 private fun PersonalToolCard() {
     Row(
@@ -345,7 +449,7 @@ private fun EmptyState(symbol: String, title: String, detail: String) {
 }
 
 @Composable
-private fun TikTubeScreen(htmlFile: File, onBack: () -> Unit, context: Context) {
+private fun ToolScreen(htmlFile: File, title: String, subtitle: String, onBack: () -> Unit, context: Context) {
     Column(Modifier.fillMaxSize().background(Background).statusBarsPadding()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
@@ -356,8 +460,8 @@ private fun TikTubeScreen(htmlFile: File, onBack: () -> Unit, context: Context) 
             }
             Spacer(Modifier.width(5.dp))
             Column(Modifier.weight(1f)) {
-                Text("TikTube", color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("YouTube & TikTok", color = Muted, fontSize = 10.sp)
+                Text(title, color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(subtitle, color = Muted, fontSize = 10.sp)
             }
             Surface(color = Color(0xFF17352D), shape = RoundedCornerShape(30.dp)) {
                 Text("INSTALLED", color = Green, fontSize = 9.sp, fontWeight = FontWeight.Bold,
