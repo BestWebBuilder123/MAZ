@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Particle Lab 3.0</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:12px;background:#090a10;color:#f5f5fa;font-family:Arial,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}
+h1{font-size:21px;margin:0;color:#ff365d}
+small{color:#9299ad}
+button,select{background:#191b27;color:white;border:1px solid #303344;border-radius:9px;padding:11px;font-size:14px}
+button{cursor:pointer}
+button:active{opacity:.7}
+.primary{background:#ff365d;border:0}
+main{max-width:1100px;margin:auto}
+.preview,.panel{background:#11131d;border:1px solid #292c3b;border-radius:13px;padding:12px}
+canvas{width:100%;display:block;background:#05060b;border-radius:9px;touch-action:pan-y}
+.buttons{display:flex;gap:7px;margin-top:10px}
+.buttons button{flex:1}
+.panel{margin-top:12px}
+h3{font-size:13px;color:#ff718b;margin:0 0 15px}
+.control{margin:15px 0}
+.control label{display:flex;justify-content:space-between;font-size:13px;margin-bottom:7px}
+output{color:#ff718b}
+input[type=range]{width:100%;accent-color:#ff365d}
+input[type=color]{width:40px;height:30px;background:none;border:0}
+select{width:100%}
+.colors{display:flex;gap:20px;align-items:center}
+.colors label{font-size:12px;color:#aaa}
+.export{border-color:#69263b}
+#status,#exportStatus{font-size:12px;color:#aaa;margin:10px 0 0}
+@media(min-width:800px){.layout{display:grid;grid-template-columns:1fr 320px;gap:14px}.panel{margin-top:0}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>PARTICLE LAB</h1><small>Particle creation studio 3.0</small></div><button onclick="randomize()">Randomize</button></header>
+<div class="layout">
+<div class="preview">
+<canvas id="canvas" width="854" height="480"></canvas>
+<div class="buttons"><button onclick="toggle()">Pause</button><button onclick="clearParticles()">Clear</button><button onclick="burst()">Burst</button></div>
+<p id="status">Simulation running</p>
+</div>
+<div>
+<section class="panel"><h3>PARTICLE SETTINGS</h3>
+<div class="control"><label>Amount <output id="amountOut"></output></label><input id="amount" type="range" min="10" max="250" value="80"></div>
+<div class="control"><label>Speed <output id="speedOut"></output></label><input id="speed" type="range" min=".2" max="10" step=".1" value="3"></div>
+<div class="control"><label>Size <output id="sizeOut"></output></label><input id="size" type="range" min="1" max="20" value="4"></div>
+<div class="control"><label>Spread <output id="spreadOut"></output></label><input id="spread" type="range" min="10" max="360" value="100"></div>
+<div class="control"><label>Lifetime <output id="lifeOut"></output></label><input id="life" type="range" min=".5" max="10" step=".1" value="3"></div>
+<div class="control"><label>Gravity <output id="gravityOut"></output></label><input id="gravity" type="range" min="-5" max="5" step=".1" value="0"></div>
+</section>
+<section class="panel"><h3>EMITTER</h3>
+<select id="shape"><option value="fountain">Fountain</option><option value="explosion">Explosion</option><option value="rain">Rain</option><option value="orbit">Orbit</option><option value="spark">Sparks</option></select>
+<div class="control"><label>Horizontal <output id="exOut"></output></label><input id="ex" type="range" min="0" max="100" value="50"></div>
+<div class="control"><label>Vertical <output id="eyOut"></output></label><input id="ey" type="range" min="0" max="100" value="55"></div>
+</section>
+<section class="panel"><h3>APPEARANCE</h3>
+<div class="colors"><label>Primary <input id="color1" type="color" value="#ff365d"></label><label>Secondary <input id="color2" type="color" value="#ffc857"></label></div>
+<div class="control"><label>Glow <output id="glowOut"></output></label><input id="glow" type="range" min="0" max="15" value="5"></div>
+<div class="control"><label>Opacity <output id="opacityOut"></output></label><input id="opacity" type="range" min="5" max="100" value="85"></div>
+<select id="bg"><option value="#05060b">Black</option><option value="#101827">Midnight blue</option><option value="#24111c">Burgundy</option><option value="#202020">Charcoal</option></select>
+</section>
+<section class="panel export"><h3>VIDEO EXPORT</h3>
+<div class="control"><label>Duration <output id="durationOut"></output></label><input id="duration" type="range" min="2" max="30" value="5"></div>
+<select id="quality"><option value="5000000">High quality</option><option value="2500000" selected>Medium quality</option><option value="1000000">Small file</option></select>
+<br><br><button class="primary" id="exportBtn" style="width:100%" onclick="exportVideo()">EXPORT VIDEO</button><p id="exportStatus"></p>
+</section>
+</div></div></main>
+<script>
+const $=id=>document.getElementById(id);
+const canvas=$('canvas');
+const ctx=canvas.getContext('2d',{alpha:false});
+const W=canvas.width,H=canvas.height;
+let particles=[],pool=[],playing=true,emitting=true,previous=0,carry=0,raf=0;
+const rand=(a,b)=>Math.random()*(b-a)+a;
+function config(){return{amount:+$('amount').value,speed:+$('speed').value,size:+$('size').value,spread:+$('spread').value,life:+$('life').value,gravity:+$('gravity').value,x:W*$('ex').value/100,y:H*$('ey').value/100,shape:$('shape').value,c1:$('color1').value,c2:$('color2').value,glow:+$('glow').value,opacity:+$('opacity').value/100,bg:$('bg').value};}
+const sliders=[['amount',''],['speed',''],['size',''],['spread',''],['life','s'],['gravity',''],['ex','%'],['ey','%'],['glow',''],['opacity','%'],['duration','s']];
+sliders.forEach(([id,suffix])=>{const el=$(id),output=$(id+'Out');function update(){output.textContent=el.value+suffix;}el.addEventListener('input',update);update();});
+function getParticle(){return pool.pop()||{};}
+function releaseParticle(p){if(pool.length<300)pool.push(p);}
+function createParticle(){
+ const s=config();let angle,vx,vy;
+ switch(s.shape){
+ case'explosion':angle=rand(0,Math.PI*2);vx=Math.cos(angle)*rand(.5,1.3)*s.speed;vy=Math.sin(angle)*rand(.5,1.3)*s.speed;break;
+ case'rain':vx=rand(-.2,.2);vy=rand(1,2)*s.speed;break;
+ case'orbit':angle=rand(0,Math.PI*2);vx=Math.cos(angle)*s.speed;vy=Math.sin(angle)*s.speed;break;
+ case'spark':angle=rand(-Math.PI,-.1);vx=Math.cos(angle)*s.speed;vy=Math.sin(angle)*s.speed;break;
+ default:angle=rand(-Math.PI*.85,-Math.PI*.15);vx=Math.cos(angle)*s.speed;vy=Math.sin(angle)*s.speed;
+ }
+ const p=getParticle();p.x=s.x+rand(-s.spread/10,s.spread/10);p.y=s.y;p.vx=vx;p.vy=vy;p.age=0;p.life=s.life*rand(.7,1.3);p.size=s.size*rand(.6,1.3);p.color=Math.random()<.5?s.c1:s.c2;p.phase=rand(0,7);particles.push(p);
+}
+function spawn(n){const max=config().amount;for(let i=0;i<n&&particles.length<max;i++)createParticle();}
+function draw(dt,time){
+ const s=config();ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;ctx.fillStyle=s.bg;ctx.fillRect(0,0,W,H);
+ if(emitting){let rate=s.amount/55;if(s.shape==='rain')rate=s.amount/35;if(s.shape==='orbit')rate=s.amount/75;carry+=rate*dt*60;const n=Math.floor(carry);carry-=n;if(n)spawn(n);}
+ ctx.globalCompositeOperation='lighter';
+ for(let i=particles.length-1;i>=0;i--){
+  const p=particles[i];p.age+=dt;
+  if(p.age>=p.life||p.x<-50||p.x>W+50||p.y<-100||p.y>H+100){particles[i]=particles[particles.length-1];particles.pop();releaseParticle(p);continue;}
+  if(s.shape==='orbit'){p.vx+=Math.sin(time*.001+p.phase)*.025;p.vy+=Math.cos(time*.001+p.phase)*.025;}
+  p.vy+=s.gravity*dt;p.x+=p.vx*dt*60;p.y+=p.vy*dt*60;
+  const fade=1-p.age/p.life,radius=p.size*(.4+.6*fade);ctx.globalAlpha=fade*s.opacity;ctx.fillStyle=p.color;
+  if(s.glow>0){ctx.globalAlpha=fade*s.opacity*.12;ctx.beginPath();ctx.arc(p.x,p.y,radius+s.glow*.5,0,Math.PI*2);ctx.fill();}
+  ctx.globalAlpha=fade*s.opacity;ctx.beginPath();
+  if(s.shape==='spark'){ctx.ellipse(p.x,p.y,radius*2,radius*.4,Math.atan2(p.vy,p.vx),0,Math.PI*2);}else{ctx.arc(p.x,p.y,radius,0,Math.PI*2);}
+  ctx.fill();
+ }
+ ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
+}
+function loop(time){if(!playing)return;const dt=previous?Math.min((time-previous)/1000,.04):1/60;previous=time;draw(dt,time);raf=requestAnimationFrame(loop);}
+function start(){if(playing)return;playing=true;previous=0;$('status').textContent='Simulation running';raf=requestAnimationFrame(loop);}
+function toggle(){if(playing){playing=false;cancelAnimationFrame(raf);$('status').textContent='Paused';}else start();}
+function clearParticles(){emitting=false;carry=0;for(const p of particles)releaseParticle(p);particles.length=0;ctx.fillStyle=config().bg;ctx.fillRect(0,0,W,H);$('status').textContent='Cleared';}
+function burst(){emitting=false;const s=config(),old=s.shape;$('shape').value='explosion';for(let i=0;i<s.amount;i++)createParticle();$('shape').value=old;$('status').textContent='Burst effect';if(!playing)start();}
+function randomize(){
+ const palettes=[['#ff365d','#ffc857'],['#5de4ff','#a58bff'],['#7dff9b','#faff7d'],['#ff70d6','#8a7dff'],['#ffffff','#ff8b4a']];
+ const colors=palettes[Math.floor(rand(0,palettes.length))];$('color1').value=colors[0];$('color2').value=colors[1];
+ $('shape').value=['fountain','explosion','rain','orbit','spark'][Math.floor(rand(0,5))];
+ $('amount').value=Math.floor(rand(40,180));$('speed').value=rand(1,6).toFixed(1);$('size').value=Math.floor(rand(2,9));
+ ['amount','speed','size'].forEach(id=>$(id).dispatchEvent(new Event('input')));clearParticles();emitting=true;if(!playing)start();
+}
+canvas.addEventListener('pointerdown',e=>{const r=canvas.getBoundingClientRect();$('ex').value=Math.round((e.clientX-r.left)/r.width*100);$('ey').value=Math.round((e.clientY-r.top)/r.height*100);$('ex').dispatchEvent(new Event('input'));$('ey').dispatchEvent(new Event('input'));emitting=true;spawn(25);if(!playing)start();});
+['amount','speed','size','spread','life','gravity','ex','ey','glow','opacity'].forEach(id=>{$(id).addEventListener('input',()=>{if(id==='amount'){while(particles.length>config().amount)releaseParticle(particles.pop());}if(!playing)draw(0,performance.now());});});
+['shape','color1','color2','bg'].forEach(id=>{$(id).addEventListener('change',()=>{if(!playing)draw(0,performance.now());});});
+function exportVideo(){
+ const status=$('exportStatus'),btn=$('exportBtn');
+ if(!canvas.captureStream||!window.MediaRecorder){status.textContent='Recording unsupported. Try Chrome.';return;}
+ const mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(t=>MediaRecorder.isTypeSupported(t));
+ if(!mime){status.textContent='WebM is not supported.';return;}
+ emitting=true;if(!playing)start();const stream=canvas.captureStream(30);let recorder;
+ try{recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:+$('quality').value});}
+ catch(e){status.textContent='Recording failed to start.';stream.getTracks().forEach(t=>t.stop());return;}
+ const chunks=[];btn.disabled=true;btn.textContent='RECORDING...';status.textContent='Recording animation...';
+ recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+ recorder.onstop=()=>{
+  const blob=new Blob(chunks,{type:mime}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='particle-animation.webm';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  stream.getTracks().forEach(t=>t.stop());btn.disabled=false;btn.textContent='EXPORT VIDEO';status.textContent='Video exported!';
+ };
+ recorder.start();setTimeout(()=>{if(recorder.state==='recording')recorder.stop();},Math.max(2,+$('duration').value)*1000);
+}
+spawn(80);raf=requestAnimationFrame(loop);
+</script>
+</body>
+</html>
