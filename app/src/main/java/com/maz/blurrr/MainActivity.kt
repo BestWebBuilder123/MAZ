@@ -237,8 +237,8 @@ private fun MazApp() {
                             Text("APP LIBRARY", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
                             Text("2 APPS", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
                         }
-                        AppListingCard(name = "Aurea", description = "Android app · APK download", fileSize = "122.6 MB")
-                        AppListingCard(name = "GoldMotion", description = "Android app · APK download", fileSize = "200.9 MB")
+                        AppListingCard(context = context, name = "Aurea", description = "Android app · APK download", fileSize = "122.6 MB", downloadUrl = null)
+                        AppListingCard(context = context, name = "GoldMotion", description = "Android app · APK download", fileSize = "200.9 MB", downloadUrl = null)
                         Text("Downloads are being connected to MAZ hosting. The apps will become downloadable here once the file links are ready.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
                     }
                     else -> EmptyState(
@@ -370,7 +370,7 @@ private fun ParticleLabCard(installed: Boolean, onAction: () -> Unit) {
 }
 
 @Composable
-private fun AppListingCard(name: String, description: String, fileSize: String) {
+private fun AppListingCard(context: Context, name: String, description: String, fileSize: String, downloadUrl: String?) {
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(SurfaceOne)
             .border(1.dp, Stroke, RoundedCornerShape(22.dp)).padding(17.dp)
@@ -392,14 +392,32 @@ private fun AppListingCard(name: String, description: String, fileSize: String) 
         Spacer(Modifier.height(13.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text(fileSize, color = Muted, fontSize = 10.sp)
-            Text("HOSTING SETUP", color = Color(0xFFFFB86B), fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp)
+            Text(if (downloadUrl.isNullOrBlank()) "HOSTING SETUP" else "READY", color = if (downloadUrl.isNullOrBlank()) Color(0xFFFFB86B) else Green, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp)
         }
         Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth().height(46.dp),
-            shape = RoundedCornerShape(13.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Stroke)) {
-            Text("Download link being prepared", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        OutlinedButton(
+            onClick = { if (!downloadUrl.isNullOrBlank()) enqueueApkDownload(context, downloadUrl, "$name.apk") },
+            enabled = !downloadUrl.isNullOrBlank(),
+            modifier = Modifier.fillMaxWidth().height(46.dp),
+            shape = RoundedCornerShape(13.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Stroke)
+        ) {
+            Text(if (downloadUrl.isNullOrBlank()) "Download link being prepared" else "↓  Download APK",
+                color = if (downloadUrl.isNullOrBlank()) Muted else White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
     }
+}
+
+
+private fun enqueueApkDownload(context: Context, url: String, fileName: String) {
+    val request = DownloadManager.Request(Uri.parse(url))
+        .setMimeType("application/vnd.android.package-archive")
+        .setTitle(fileName)
+        .setDescription("Downloading $fileName for MAZ")
+        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+    val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    manager.enqueue(request)
 }
 
 @Composable
